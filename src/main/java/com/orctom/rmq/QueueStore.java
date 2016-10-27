@@ -151,12 +151,12 @@ QueueStore extends AbstractStore {
     return columnFamilyHandles.get(queueName);
   }
 
-  void put(String queueName, String key, String value) {
-    put(queueName, key.getBytes(), value.getBytes());
+  void push(String queueName, String key, String value) {
+    push(queueName, key.getBytes(), value.getBytes());
   }
 
-  void put(String queueName, byte[] key, byte[] value) {
-    writeBatches.get(queueName).put(key, value);
+  void push(String queueName, byte[] key, byte[] value) {
+    writeBatches.get(queueName).put(getColumnFamilyHandle(queueName), key, value);
   }
 
   void remove(String queueName, String key) {
@@ -172,8 +172,30 @@ QueueStore extends AbstractStore {
     }
   }
 
-  void moveToQueue(byte[] key, String targetQueue) {
-    
+  String get(String queueName, String key) {
+    return new String(get(queueName, key.getBytes()));
+  }
+
+  byte[] get(String queueName, byte[] key) {
+    try {
+      return db.get(getColumnFamilyHandle(queueName), key);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  byte[] pop(String queueName) {
+
+  }
+
+  void moveBetweenQueues(String key, String sourceQueue, String targetQueue) {
+    moveBetweenQueues(key.getBytes(), sourceQueue, targetQueue);
+  }
+
+  void moveBetweenQueues(byte[] key, String sourceQueue, String targetQueue) {
+    byte[] value = get(sourceQueue, key);
+    remove(sourceQueue, key);
+    push(targetQueue, key, value);
   }
 
   void close() {
