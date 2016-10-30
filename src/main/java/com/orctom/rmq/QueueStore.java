@@ -1,6 +1,5 @@
 package com.orctom.rmq;
 
-import com.google.common.base.Stopwatch;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
 import org.slf4j.Logger;
@@ -102,7 +101,7 @@ QueueStore extends AbstractStore {
     }, PERSIST_DELAY, PERSIST_PERIOD);
   }
 
-  private void persist(WriteBatch batch) {
+  void persist(WriteBatch batch) {
     int size = batch.count();
     if (0 == size) {
       LOGGER.debug("batch size: 0, skipped.");
@@ -110,10 +109,7 @@ QueueStore extends AbstractStore {
     }
 
     try {
-      Stopwatch stopwatch = Stopwatch.createStarted();
       db.write(writeOptions, batch);
-      stopwatch.stop();
-      LOGGER.debug("batch size: {}, {}", size, stopwatch);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -184,15 +180,39 @@ QueueStore extends AbstractStore {
     }
   }
 
+  String popString(String queueName) {
+    byte[] value = pop(queueName);
+    if (null == value) {
+      return null;
+    }
+
+    return new String(value);
+  }
+
   byte[] pop(String queueName) {
+    ColumnFamilyHandle handle = getColumnFamilyHandle(queueName);
+    RocksIterator iterator = db.newIterator(handle);
 
+    iterator.seekToLast();
+    if (!iterator.isValid()) {
+      return null;
+    }
+
+    byte[] key = iterator.key();
+    byte[] value = iterator.value();
+    try {
+      db.remove(handle, key);
+      return value;
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
   }
 
-  void moveBetweenQueues(String key, String sourceQueue, String targetQueue) {
-    moveBetweenQueues(key.getBytes(), sourceQueue, targetQueue);
+  void move(String key, String sourceQueue, String targetQueue) {
+    move(key.getBytes(), sourceQueue, targetQueue);
   }
 
-  void moveBetweenQueues(byte[] key, String sourceQueue, String targetQueue) {
+  void move(byte[] key, String sourceQueue, String targetQueue) {
     byte[] value = get(sourceQueue, key);
     remove(sourceQueue, key);
     push(targetQueue, key, value);
