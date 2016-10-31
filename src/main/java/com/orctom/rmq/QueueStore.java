@@ -32,6 +32,9 @@ QueueStore extends AbstractStore {
   private Map<String, ColumnFamilyHandle> columnFamilyHandles = new HashMap<>();
 
   QueueStore(List<String> queueNames, int ttl) {
+    if (null == queueNames) {
+      throw new IllegalArgumentException("QueueNames should not be null");
+    }
     ensureDataDirExist();
     List<ColumnFamilyDescriptor> columnFamilyDescriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
@@ -46,6 +49,10 @@ QueueStore extends AbstractStore {
   }
 
   private List<ColumnFamilyDescriptor> createColumnFamilyDescriptors(List<String> families) {
+    if (families.isEmpty()) {
+      return Collections.emptyList();
+    }
+
     return families.stream().map(this::createColumnFamilyDescriptor).collect(Collectors.toList());
   }
 
@@ -60,6 +67,10 @@ QueueStore extends AbstractStore {
   }
 
   private List<Integer> createTTLs(int size, int ttl) {
+    if (0 == size) {
+      return Collections.emptyList();
+    }
+
     List<Integer> ttlList = new ArrayList<>(size);
     for (int i = 0; i < size; i++) {
       ttlList.add(ttl);
