@@ -3,8 +3,8 @@ package com.orctom.rmq;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
 
 public class RMQ {
 
@@ -14,9 +14,15 @@ public class RMQ {
 
   private QueueStore store;
 
+  private Map<String, Queue> queues = new HashMap<>();
+
   private RMQ() {
     List<String> queueNames = readQueueNames();
     store = new QueueStore(queueNames, 1000);
+  }
+
+  public static RMQ getInstance() {
+    return INSTANCE;
   }
 
   private List<String> readQueueNames() {
@@ -31,8 +37,30 @@ public class RMQ {
     store.deleteQueue(queueName);
   }
 
-  public void push(String queueName, String data) {
-    store.push(queueName, null, data);
+  public void send(String topic, String message) {
+    getQueue(topic).send(message);
+    store.push(topic, null, message);
   }
 
+  public void subscribe(String topic, RMQConsumer consumer) {
+    if (null == consumer) {
+      return;
+    }
+
+    Queue queue = getQueue(topic);
+    queue.addConsumers(consumer);
+  }
+
+  public void subscribe(String topic, Collection<RMQConsumer> consumers) {
+    if (null == consumers || consumers.isEmpty()) {
+      return;
+    }
+
+    Queue queue = getQueue(topic);
+    queue.addConsumers(consumers);
+  }
+
+  private Queue getQueue(String topic) {
+    return queues.computeIfAbsent(topic, f -> new Queue(topic));
+  }
 }
