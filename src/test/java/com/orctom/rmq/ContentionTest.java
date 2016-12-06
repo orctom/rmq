@@ -5,7 +5,7 @@ import org.junit.Test;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-public class ContensionTest {
+public class ContentionTest {
 
   @Test
   public void testLoop() {

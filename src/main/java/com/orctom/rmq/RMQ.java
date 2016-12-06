@@ -42,13 +42,13 @@ public class RMQ {
     store.push(topic, null, message);
   }
 
-  public void subscribe(String topic, RMQConsumer consumer) {
-    if (null == consumer) {
+  public void subscribe(String topic, RMQConsumer... consumers) {
+    if (null == consumers) {
       return;
     }
 
     Queue queue = getQueue(topic);
-    queue.addConsumers(consumer);
+    queue.addConsumers(consumers);
   }
 
   public void subscribe(String topic, Collection<RMQConsumer> consumers) {

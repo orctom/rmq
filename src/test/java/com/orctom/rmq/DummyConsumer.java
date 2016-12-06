@@ -3,7 +3,8 @@ package com.orctom.rmq;
 public class DummyConsumer extends RMQConsumer {
 
   @Override
-  void onMessage(String msg) {
+  Ack onMessage(String msg) {
     System.out.println(msg);
+    return Ack.DONE;
   }
 }

@@ -2,6 +2,7 @@ package com.orctom.rmq;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.ArrayBlockingQueue;
 
 public class Queue {
@@ -24,8 +25,8 @@ public class Queue {
     return consumers;
   }
 
-  void addConsumers(RMQConsumer consumer) {
-    this.consumers.add(consumer);
+  void addConsumers(RMQConsumer... consumers) {
+    Collections.addAll(this.consumers, consumers);
   }
 
   void addConsumers(Collection<RMQConsumer> consumers) {
