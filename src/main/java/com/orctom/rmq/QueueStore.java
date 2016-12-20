@@ -5,44 +5,32 @@ import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-class
-QueueStore extends AbstractStore {
+class QueueStore extends AbstractStore implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(QueueStore.class);
 
-  public static final int PERSIST_DELAY = 0;
-  public static final int PERSIST_PERIOD = 1000;
-
-  private static final String ID = "queue";
-
-  private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-  private ReentrantReadWriteLock.ReadLock readLock = lock.readLock();
-  private ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
+  private static final String ID = "queues";
 
   private final TtlDB db;
   private final DBOptions options = new DBOptions();
-  private final WriteOptions writeOptions = new WriteOptions();
-
-  private Map<String, WriteBatch> writeBatches = new ConcurrentHashMap<>();
-  private Map<String, ColumnFamilyHandle> columnFamilyHandles = new HashMap<>();
 
   QueueStore(List<String> queueNames, int ttl) {
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
     }
     ensureDataDirExist();
-    List<ColumnFamilyDescriptor> columnFamilyDescriptors = createColumnFamilyDescriptors(queueNames);
+    List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
     List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
     try {
-      db = TtlDB.open(options, getPath(ID), columnFamilyDescriptors, handles, ttlList, false);
-      initHandlerMap(queueNames, handles);
-      initWriteBatches();
+      db = TtlDB.open(options, getPath(ID), descriptors, handles, ttlList, false);
+      initQueues(queueNames, descriptors, handles);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -78,68 +66,31 @@ QueueStore extends AbstractStore {
     return ttlList;
   }
 
-  private void initHandlerMap(List<String> queueNames, List<ColumnFamilyHandle> handles) {
+  private void initQueues(List<String> queueNames,
+                          List<ColumnFamilyDescriptor> descriptors,
+                          List<ColumnFamilyHandle> handles) {
+    Map<String, Queue> queues = RMQ.getInstance().getQueues();
     for (int i = 0; i < handles.size(); i++) {
       String queueName = queueNames.get(i);
+      ColumnFamilyDescriptor descriptor = descriptors.get(i);
       ColumnFamilyHandle handle = handles.get(i);
-      columnFamilyHandles.put(queueName, handle);
+      Queue queue = new Queue(queueName, descriptor, handle);
+      queues.put(queueName, queue);
     }
   }
 
-  private void initWriteBatches() {
-    for (String queueName : columnFamilyHandles.keySet()) {
-      writeBatches.put(queueName, new WriteBatch());
-    }
-    initWriteBatchThread();
-  }
-
-  private void initWriteBatchThread() {
-    Timer timer = new Timer(false);
-    timer.scheduleAtFixedRate(new TimerTask() {
-      @Override
-      public void run() {
-        LOGGER.info("Writing batch...");
-        writeLock.lock();
-        try {
-          for (String queueName : columnFamilyHandles.keySet()) {
-            WriteBatch writeBatch = writeBatches.put(queueName, new WriteBatch());
-            persist(writeBatch);
-          }
-        } finally {
-          writeLock.unlock();
-        }
-      }
-    }, PERSIST_DELAY, PERSIST_PERIOD);
-  }
-
-  void persist(WriteBatch batch) {
-    int size = batch.count();
-    if (0 == size) {
-      LOGGER.debug("batch size: 0, skipped.");
-      return;
-    }
-
+  Queue createQueue(String queueName) {
     try {
-      db.write(writeOptions, batch);
+      ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
+      ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
+      return new Queue(queueName, descriptor, handle);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  void createQueue(String queueName) {
-    try {
-      ColumnFamilyHandle handle = db.createColumnFamily(createColumnFamilyDescriptor(queueName));
-      columnFamilyHandles.put(queueName, handle);
-      writeBatches.put(queueName, new WriteBatch());
-    } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
-    }
-  }
-
-  void deleteQueue(String queueName) {
-    dropColumnFamily(getColumnFamilyHandle(queueName));
-    columnFamilyHandles.remove(queueName);
-    writeBatches.remove(queueName);
+  void deleteQueue(Queue queue) {
+    dropColumnFamily(queue.getHandle());
   }
 
   private void dropColumnFamily(ColumnFamilyHandle handle) {
@@ -154,45 +105,44 @@ QueueStore extends AbstractStore {
     }
   }
 
-  private ColumnFamilyHandle getColumnFamilyHandle(String queueName) {
-    return columnFamilyHandles.get(queueName);
+  void push(Queue queue, String key, String value) {
+    push(queue, key.getBytes(), value.getBytes());
   }
 
-  void push(String queueName, String key, String value) {
-    push(queueName, key.getBytes(), value.getBytes());
-  }
-
-  void push(String queueName, byte[] key, byte[] value) {
-    writeBatches.get(queueName).put(getColumnFamilyHandle(queueName), key, value);
-  }
-
-  void remove(String queueName, String key) {
-    remove(queueName, key.getBytes());
-  }
-
-  void remove(String queueName, byte[] key) {
-    readLock.lock();
+  void push(Queue queue, byte[] key, byte[] value) {
     try {
-      writeBatches.get(queueName).remove(getColumnFamilyHandle(queueName), key);
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  String get(String queueName, String key) {
-    return new String(get(queueName, key.getBytes()));
-  }
-
-  byte[] get(String queueName, byte[] key) {
-    try {
-      return db.get(getColumnFamilyHandle(queueName), key);
+      db.put(queue.getHandle(), key, value);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  String popString(String queueName) {
-    byte[] value = pop(queueName);
+  void remove(Queue queue, String key) {
+    remove(queue, key.getBytes());
+  }
+
+  void remove(Queue queue, byte[] key) {
+    try {
+      db.remove(queue.getHandle(), key);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  String get(Queue queue, String key) {
+    return new String(get(queue, key.getBytes()));
+  }
+
+  byte[] get(Queue queue, byte[] key) {
+    try {
+      return db.get(queue.getHandle(), key);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  String popString(Queue queue) {
+    byte[] value = pop(queue);
     if (null == value) {
       return null;
     }
@@ -200,8 +150,8 @@ QueueStore extends AbstractStore {
     return new String(value);
   }
 
-  byte[] pop(String queueName) {
-    ColumnFamilyHandle handle = getColumnFamilyHandle(queueName);
+  byte[] pop(Queue queue) {
+    ColumnFamilyHandle handle = queue.getHandle();
     RocksIterator iterator = db.newIterator(handle);
 
     iterator.seekToLast();
@@ -219,18 +169,18 @@ QueueStore extends AbstractStore {
     }
   }
 
-  void move(String key, String sourceQueue, String targetQueue) {
+  void move(String key, Queue sourceQueue, Queue targetQueue) {
     move(key.getBytes(), sourceQueue, targetQueue);
   }
 
-  void move(byte[] key, String sourceQueue, String targetQueue) {
+  void move(byte[] key, Queue sourceQueue, Queue targetQueue) {
     byte[] value = get(sourceQueue, key);
     remove(sourceQueue, key);
     push(targetQueue, key, value);
   }
 
-  void close() {
-    columnFamilyHandles.values().forEach(ColumnFamilyHandle::close);
+  @Override
+  public void close() {
     options.close();
     if (null != db) {
       db.close();

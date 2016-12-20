@@ -15,4 +15,4 @@ target/
 *tmp*
 *temp*
 diagrams
-/laputa-server/src/test/java/io
+data

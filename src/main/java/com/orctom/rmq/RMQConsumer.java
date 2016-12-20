@@ -1,11 +1,6 @@
 package com.orctom.rmq;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+public interface RMQConsumer {
 
-public abstract class RMQConsumer {
-
-  private static final Logger LOGGER = LoggerFactory.getLogger(RMQConsumer.class);
-
-  abstract Ack onMessage(String message);
+  Ack onMessage(String message);
 }

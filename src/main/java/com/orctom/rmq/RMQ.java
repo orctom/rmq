@@ -1,66 +1,73 @@
 package com.orctom.rmq;
 
+import org.rocksdb.ColumnFamilyHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.function.Function;
 
-public class RMQ {
+public class RMQ implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RMQ.class);
 
   private static final RMQ INSTANCE = new RMQ();
 
-  private QueueStore store;
+  private MetaStore metaStore;
 
   private Map<String, Queue> queues = new HashMap<>();
 
   private RMQ() {
-    List<String> queueNames = readQueueNames();
-    store = new QueueStore(queueNames, 1000);
+    metaStore = MetaStore.getInstance();
   }
 
   public static RMQ getInstance() {
     return INSTANCE;
   }
 
-  private List<String> readQueueNames() {
-    return new ArrayList<>(MetaStore.getInstance().getAll().values());
-  }
-
   public void createQueue(String queueName) {
-    store.createQueue(queueName);
+    Queue queue = metaStore.getQueueStore().createQueue(queueName);
+    queues.put(queueName, queue);
   }
 
   public void deleteQueue(String queueName) {
-    store.deleteQueue(queueName);
+    Queue queue = queues.remove(queueName);
+    metaStore.getQueueStore().deleteQueue(queue);
   }
 
-  public void send(String topic, String message) {
-    getQueue(topic).send(message);
-    store.push(topic, null, message);
+  public void send(String queueName, String message) {
+    metaStore.getQueueStore().push(getQueue(queueName), message, null);
   }
 
-  public void subscribe(String topic, RMQConsumer... consumers) {
+  public void subscribe(String queueName, RMQConsumer... consumers) {
     if (null == consumers) {
       return;
     }
 
-    Queue queue = getQueue(topic);
+    Queue queue = getQueue(queueName);
     queue.addConsumers(consumers);
   }
 
-  public void subscribe(String topic, Collection<RMQConsumer> consumers) {
+  public void subscribe(String queueName, Collection<RMQConsumer> consumers) {
     if (null == consumers || consumers.isEmpty()) {
       return;
     }
 
-    Queue queue = getQueue(topic);
+    Queue queue = getQueue(queueName);
     queue.addConsumers(consumers);
   }
 
-  private Queue getQueue(String topic) {
-    return queues.computeIfAbsent(topic, f -> new Queue(topic));
+  private Queue getQueue(String name) {
+    return queues.computeIfAbsent(name, f -> new Queue(name));
+  }
+
+  Map<String, Queue> getQueues() {
+    return queues;
+  }
+
+  @Override
+  public void close() throws Exception {
+    queues.values().forEach(queue -> {
+      queue.getHandle().close();
+    });
   }
 }

@@ -1,9 +1,9 @@
 package com.orctom.rmq;
 
-public class DummyConsumer extends RMQConsumer {
+public class DummyConsumer implements RMQConsumer {
 
   @Override
-  Ack onMessage(String msg) {
+  public Ack onMessage(String msg) {
     System.out.println(msg);
     return Ack.DONE;
   }

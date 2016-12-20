@@ -1,0 +1,42 @@
+@startuml
+
+class RMQ {
+  Map<String, Queue> queues
+  MetaStore metaStore
+  createQueue(String name)
+  deleteQueue(String name)
+  subscribe(String name, RMQConsumer...consumer)
+  send(String name, String message)
+}
+
+class Queue {
+  String name
+  ColumnFamilyHandle handle
+  ColumnFamilyDescriptor descriptor
+  Collection<RMQConsumer> consumers
+  addConsumers(RMQConsumer... consumers)
+  send(String message)
+}
+
+class MetaStore {
+  DB db
+  QueueStore queueStore
+  List<String> getAllQueueNames()
+  long getOffset(String queueName)
+  long setOffset(String queueName, long offset)
+}
+
+class QueueStore {
+  TtlDB ttlDB
+  Queue createQueue(String name)
+  deleteQueue(String name)
+  write(String key, String value)
+  delete(String key)
+}
+
+interface RMQConsumer {
+  onMessage(String message)
+}
+
+
+@enduml
