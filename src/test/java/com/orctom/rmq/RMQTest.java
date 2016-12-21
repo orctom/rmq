@@ -1,19 +1,8 @@
 package com.orctom.rmq;
 
-import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.RandomUtils;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
-import org.rocksdb.ColumnFamilyDescriptor;
-import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import static org.junit.Assert.assertEquals;
 
 public class RMQTest {
 
@@ -25,8 +14,8 @@ public class RMQTest {
     String topic = "events";
     RMQ rmq = RMQ.getInstance();
     rmq.subscribe(topic, consumer);
-    for (int i = 0; i < 1_000_000; i++) {
-      rmq.send(topic, RandomStringUtils.randomAlphanumeric(100));
+    for (int i = 0; i < 5; i++) {
+      rmq.send(topic, "msg: " + i);
     }
   }
 }

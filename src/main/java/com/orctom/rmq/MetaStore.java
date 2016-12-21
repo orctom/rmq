@@ -1,14 +1,18 @@
 package com.orctom.rmq;
 
 import com.orctom.rmq.exception.RMQException;
-import org.rocksdb.*;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 class MetaStore extends AbstractStore implements AutoCloseable {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(MetaStore.class);
 
   private static final MetaStore INSTANCE = new MetaStore();
 
@@ -40,6 +44,10 @@ class MetaStore extends AbstractStore implements AutoCloseable {
 
   private void initQueueStore() {
     List<String> queueNames = getAllQueues();
+    if (queueNames.isEmpty()) {
+      LOGGER.warn("No queue yet, will initialize it later");
+      return;
+    }
     queueStore = new QueueStore(queueNames, 30);
   }
 
@@ -56,12 +64,12 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  long getOffset(String queueName) {
-    return Long.valueOf(get(queueName + SUFFIX_OFFSET));
+  String getOffset(String queueName) {
+    return get(queueName + SUFFIX_OFFSET);
   }
 
-  void setOffset(String queueName, long offset) {
-    put(queueName + SUFFIX_OFFSET, String.valueOf(offset));
+  void setOffset(String queueName, String offset) {
+    put(queueName + SUFFIX_OFFSET, offset);
   }
 
   private void put(String key, String value) {

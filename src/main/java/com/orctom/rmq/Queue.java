@@ -1,17 +1,15 @@
 package com.orctom.rmq;
 
-import com.google.common.primitives.Longs;
+import com.google.common.collect.Lists;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.List;
 
 public class Queue implements Runnable, AutoCloseable {
 
@@ -21,7 +19,10 @@ public class Queue implements Runnable, AutoCloseable {
   private ColumnFamilyDescriptor descriptor;
   private ColumnFamilyHandle handle;
 
-  private Collection<RMQConsumer> consumers  = new ArrayList<>();
+  private boolean hasNoMoreMessage = true;
+  private final Object lock = new Object();
+
+  private List<RMQConsumer> consumers  = new ArrayList<>();
 
   Queue(String name) {
     this.name = name;
@@ -37,30 +38,56 @@ public class Queue implements Runnable, AutoCloseable {
     return name;
   }
 
-  Collection<RMQConsumer> getConsumers() {
+  ColumnFamilyDescriptor getDescriptor() {
+    return descriptor;
+  }
+
+  ColumnFamilyHandle getHandle() {
+    return handle;
+  }
+
+  List<RMQConsumer> getConsumers() {
     return consumers;
   }
 
   void addConsumers(RMQConsumer... consumers) {
-    Collections.addAll(this.consumers, consumers);
+    addConsumers(Lists.newArrayList(consumers));
   }
 
   void addConsumers(Collection<RMQConsumer> consumers) {
-    this.consumers.addAll(consumers);
+    synchronized (lock) {
+      this.consumers.addAll(consumers);
+      lock.notify();
+    }
+  }
+
+  void removeConsumers(RMQConsumer... consumers) {
+    removeConsumers(Lists.newArrayList(consumers));
+  }
+
+  void removeConsumers(Collection<RMQConsumer> consumers) {
+    this.consumers.removeAll(consumers);
   }
 
   @Override
   public void run() {
     MetaStore metaStore = RMQ.getInstance().getMetaStore();
     QueueStore queueStore = metaStore.getQueueStore();
-    long offset = metaStore.getOffset(name);
+
+    String offset = metaStore.getOffset(name);
+
     while (!Thread.currentThread().isInterrupted()) {
       try {
+        while (consumers.isEmpty() || hasNoMoreMessage) {
+          lock.wait();
+        }
         RocksIterator iterator = queueStore.iter(this);
-        for (iterator.seek(Longs.toByteArray(offset)); iterator.isValid(); iterator.next()) {
+        for (iterator.seek(offset.getBytes()); iterator.isValid(); iterator.next()) {
+          String newOffset = new String(iterator.key());
           for (RMQConsumer consumer : consumers) {
             consumer.onMessage(new String(iterator.value()));
           }
+          metaStore.setOffset(name, newOffset);
         }
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
@@ -68,12 +95,11 @@ public class Queue implements Runnable, AutoCloseable {
     }
   }
 
-  ColumnFamilyDescriptor getDescriptor() {
-    return descriptor;
-  }
-
-  ColumnFamilyHandle getHandle() {
-    return handle;
+  void signal() {
+    hasNoMoreMessage = false;
+    synchronized (lock) {
+      lock.notify();
+    }
   }
 
   @Override

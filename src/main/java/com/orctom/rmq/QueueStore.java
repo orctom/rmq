@@ -124,6 +124,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private void push(Queue queue, byte[] key, byte[] value) {
     try {
       db.put(queue.getHandle(), key, value);
+      queue.signal();
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }

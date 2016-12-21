@@ -55,6 +55,24 @@ public class RMQ implements AutoCloseable {
     queue.addConsumers(consumers);
   }
 
+  public void unsubscribe(String queueName, RMQConsumer... consumers) {
+    if (null == consumers) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.removeConsumers(consumers);
+  }
+
+  public void unsubscribe(String queueName, Collection<RMQConsumer> consumers) {
+    if (null == consumers || consumers.isEmpty()) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.removeConsumers(consumers);
+  }
+
   private Queue getQueue(String name) {
     return queues.computeIfAbsent(name, f -> new Queue(name));
   }
