@@ -1,26 +1,27 @@
 package com.orctom.rmq;
 
+import com.google.common.primitives.Longs;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.ArrayBlockingQueue;
 
-public class Queue implements AutoCloseable {
+public class Queue implements Runnable, AutoCloseable {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(Queue.class);
 
   private String name;
   private ColumnFamilyDescriptor descriptor;
   private ColumnFamilyHandle handle;
 
   private Collection<RMQConsumer> consumers  = new ArrayList<>();
-
-  private ArrayBlockingQueue<String> queue = new ArrayBlockingQueue<>(100_000);
-
-  public static Queue create(String name) {
-    return new Queue(name);
-  }
 
   Queue(String name) {
     this.name = name;
@@ -48,26 +49,35 @@ public class Queue implements AutoCloseable {
     this.consumers.addAll(consumers);
   }
 
-  void send(String message) {
-    for (RMQConsumer consumer : consumers) {
-      consumer.onMessage(message);
+  @Override
+  public void run() {
+    MetaStore metaStore = RMQ.getInstance().getMetaStore();
+    QueueStore queueStore = metaStore.getQueueStore();
+    long offset = metaStore.getOffset(name);
+    while (!Thread.currentThread().isInterrupted()) {
+      try {
+        RocksIterator iterator = queueStore.iter(this);
+        for (iterator.seek(Longs.toByteArray(offset)); iterator.isValid(); iterator.next()) {
+          for (RMQConsumer consumer : consumers) {
+            consumer.onMessage(new String(iterator.value()));
+          }
+        }
+      } catch (Exception e) {
+        LOGGER.error(e.getMessage(), e);
+      }
     }
   }
 
-  public ColumnFamilyDescriptor getDescriptor() {
+  ColumnFamilyDescriptor getDescriptor() {
     return descriptor;
   }
 
-  public ColumnFamilyHandle getHandle() {
+  ColumnFamilyHandle getHandle() {
     return handle;
-  }
-
-  public ArrayBlockingQueue<String> getQueue() {
-    return queue;
   }
 
   @Override
   public void close() throws Exception {
-
+    handle.close();
   }
 }

@@ -24,9 +24,8 @@ public class RMQ implements AutoCloseable {
     return INSTANCE;
   }
 
-  public void createQueue(String queueName) {
-    Queue queue = metaStore.getQueueStore().createQueue(queueName);
-    queues.put(queueName, queue);
+  public Queue createQueue(String queueName) {
+    return metaStore.getQueueStore().createQueue(queueName);
   }
 
   public void deleteQueue(String queueName) {
@@ -35,7 +34,7 @@ public class RMQ implements AutoCloseable {
   }
 
   public void send(String queueName, String message) {
-    metaStore.getQueueStore().push(getQueue(queueName), message, null);
+    metaStore.getQueueStore().push(getQueue(queueName), message);
   }
 
   public void subscribe(String queueName, RMQConsumer... consumers) {
@@ -58,6 +57,10 @@ public class RMQ implements AutoCloseable {
 
   private Queue getQueue(String name) {
     return queues.computeIfAbsent(name, f -> new Queue(name));
+  }
+
+  MetaStore getMetaStore() {
+    return metaStore;
   }
 
   Map<String, Queue> getQueues() {

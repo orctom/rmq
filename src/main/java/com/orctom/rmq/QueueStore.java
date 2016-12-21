@@ -1,5 +1,7 @@
 package com.orctom.rmq;
 
+import com.google.common.primitives.Longs;
+import com.orctom.laputa.utils.IdGenerator;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
 import org.slf4j.Logger;
@@ -9,6 +11,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 class QueueStore extends AbstractStore implements AutoCloseable {
@@ -19,6 +23,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private final TtlDB db;
   private final DBOptions options = new DBOptions();
+
+  private final IdGenerator idGenerator = IdGenerator.create();
 
   QueueStore(List<String> queueNames, int ttl) {
     if (null == queueNames) {
@@ -83,7 +89,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     try {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
       ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
-      return new Queue(queueName, descriptor, handle);
+      Queue queue = new Queue(queueName, descriptor, handle);
+      RMQ.getInstance().getQueues().put(queueName, queue);
+      return queue;
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -105,16 +113,24 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  void push(Queue queue, String key, String value) {
+  void push(Queue queue, String message) {
+    push(queue, String.valueOf(idGenerator.generate()), message);
+  }
+
+  private void push(Queue queue, String key, String value) {
     push(queue, key.getBytes(), value.getBytes());
   }
 
-  void push(Queue queue, byte[] key, byte[] value) {
+  private void push(Queue queue, byte[] key, byte[] value) {
     try {
       db.put(queue.getHandle(), key, value);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
+  }
+
+  RocksIterator iter(Queue queue) {
+    return db.newIterator(queue.getHandle());
   }
 
   void remove(Queue queue, String key) {
