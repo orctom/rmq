@@ -19,19 +19,25 @@ public class Queue implements Runnable, AutoCloseable {
   private ColumnFamilyDescriptor descriptor;
   private ColumnFamilyHandle handle;
 
+  private MetaStore metaStore;
+  private QueueStore queueStore;
+
   private boolean hasNoMoreMessage = true;
   private final Object lock = new Object();
 
   private List<RMQConsumer> consumers  = new ArrayList<>();
 
-  Queue(String name) {
-    this.name = name;
-  }
-
-  Queue(String name, ColumnFamilyDescriptor descriptor, ColumnFamilyHandle handle) {
+  Queue(String name,
+        ColumnFamilyDescriptor descriptor,
+        ColumnFamilyHandle handle,
+        MetaStore metaStore,
+        QueueStore queueStore) {
     this.name = name;
     this.descriptor = descriptor;
     this.handle = handle;
+
+    this.metaStore = metaStore;
+    this.queueStore = queueStore;
   }
 
   String getName() {
@@ -71,9 +77,6 @@ public class Queue implements Runnable, AutoCloseable {
 
   @Override
   public void run() {
-    MetaStore metaStore = RMQ.getInstance().getMetaStore();
-    QueueStore queueStore = metaStore.getQueueStore();
-
     String offset = metaStore.getOffset(name);
 
     while (!Thread.currentThread().isInterrupted()) {

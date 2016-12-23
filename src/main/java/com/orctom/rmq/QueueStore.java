@@ -7,10 +7,7 @@ import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -21,21 +18,35 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private static final String ID = "queues";
 
-  private final TtlDB db;
-  private final DBOptions options = new DBOptions();
+  private final MetaStore metaStore;
+  private final RocksDB db;
+  private final Options options = new Options().setCreateIfMissing(true);
 
   private final IdGenerator idGenerator = IdGenerator.create();
 
-  QueueStore(List<String> queueNames, int ttl) {
+  private Map<String, Queue> queues = new HashMap<>();
+  private Map<String, Thread> queueThreads = new HashMap<>();
+
+  QueueStore(MetaStore metaStore) {
+    this.metaStore = metaStore;
+    ensureDataDirExist();
+    try {
+      db = RocksDB.open(options, getPath(ID));
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  QueueStore(MetaStore metaStore, List<String> queueNames) {
+    this.metaStore = metaStore;
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
     }
     ensureDataDirExist();
     List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
-    List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
     try {
-      db = TtlDB.open(options, getPath(ID), descriptors, handles, ttlList, false);
+      db = RocksDB.open(getPath(ID), descriptors, handles);
       initQueues(queueNames, descriptors, handles);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -60,27 +71,14 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     );
   }
 
-  private List<Integer> createTTLs(int size, int ttl) {
-    if (0 == size) {
-      return Collections.emptyList();
-    }
-
-    List<Integer> ttlList = new ArrayList<>(size);
-    for (int i = 0; i < size; i++) {
-      ttlList.add(ttl);
-    }
-    return ttlList;
-  }
-
   private void initQueues(List<String> queueNames,
                           List<ColumnFamilyDescriptor> descriptors,
                           List<ColumnFamilyHandle> handles) {
-    Map<String, Queue> queues = RMQ.getInstance().getQueues();
     for (int i = 0; i < handles.size(); i++) {
       String queueName = queueNames.get(i);
       ColumnFamilyDescriptor descriptor = descriptors.get(i);
       ColumnFamilyHandle handle = handles.get(i);
-      Queue queue = new Queue(queueName, descriptor, handle);
+      Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
       queues.put(queueName, queue);
     }
   }
@@ -89,16 +87,55 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     try {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
       ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
-      Queue queue = new Queue(queueName, descriptor, handle);
-      RMQ.getInstance().getQueues().put(queueName, queue);
+      Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
+
+      queues.put(queueName, queue);
+      metaStore.queueCreated(queueName);
       return queue;
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  void deleteQueue(Queue queue) {
-    dropColumnFamily(queue.getHandle());
+  void deleteQueue(String queueName) {
+    dropColumnFamily(queues.get(queueName).getHandle());
+    queues.remove(queueName);
+    metaStore.queueDeleted(queueName);
+  }
+
+  private Queue getQueue(String name) {
+    return queues.computeIfAbsent(name, f -> createQueue(name));
+  }
+
+  public void subscribe(String queueName, RMQConsumer... consumers) {
+    if (null == consumers) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.addConsumers(consumers);
+    startQueue(queue);
+  }
+
+  public void unsubscribe(String queueName, RMQConsumer... consumers) {
+    if (null == consumers) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.removeConsumers(consumers);
+    stopQueue(queue);
+  }
+
+  private void startQueue(Queue queue) {
+    Thread thread = new Thread(queue);
+    thread.start();
+    queueThreads.put(queue.getName(), thread);
+  }
+
+  private void stopQueue(Queue queue) {
+    Thread thread = queueThreads.get(queue.getName());
+    thread.interrupt();
   }
 
   private void dropColumnFamily(ColumnFamilyHandle handle) {
@@ -113,8 +150,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  void push(Queue queue, String message) {
-    push(queue, String.valueOf(idGenerator.generate()), message);
+  void push(String queueName, String message) {
+    push(getQueue(queueName), String.valueOf(idGenerator.generate()), message);
   }
 
   private void push(Queue queue, String key, String value) {
@@ -198,6 +235,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   @Override
   public void close() {
+    metaStore.close();
     options.close();
     if (null != db) {
       db.close();

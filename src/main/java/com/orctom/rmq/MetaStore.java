@@ -8,7 +8,8 @@ import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 class MetaStore extends AbstractStore implements AutoCloseable {
 
@@ -21,7 +22,6 @@ class MetaStore extends AbstractStore implements AutoCloseable {
 
   private final Options options = new Options().setCreateIfMissing(true);
   private final RocksDB db;
-  private QueueStore queueStore;
 
   private MetaStore() {
     ensureDataDirExist();
@@ -30,28 +30,13 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
-
-    initQueueStore();
   }
 
   static MetaStore getInstance() {
     return INSTANCE;
   }
 
-  QueueStore getQueueStore() {
-    return queueStore;
-  }
-
-  private void initQueueStore() {
-    List<String> queueNames = getAllQueues();
-    if (queueNames.isEmpty()) {
-      LOGGER.warn("No queue yet, will initialize it later");
-      return;
-    }
-    queueStore = new QueueStore(queueNames, 30);
-  }
-
-  private List<String> getAllQueues() {
+  List<String> getAllQueues() {
     try (final RocksIterator iterator = db.newIterator()) {
       List<String> names = new ArrayList<>();
       for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
@@ -64,6 +49,14 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     }
   }
 
+  void queueCreated(String queueName) {
+    put(PREFIX_QUEUE + queueName, queueName);
+  }
+
+  void queueDeleted(String queueName) {
+    delete(PREFIX_QUEUE + queueName);
+  }
+
   String getOffset(String queueName) {
     return get(queueName + SUFFIX_OFFSET);
   }
@@ -73,7 +66,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
   }
 
   private void put(String key, String value) {
-    put(key, value);
+    put(key.getBytes(), value.getBytes());
   }
 
   private void put(byte[] key, byte[] value) {
@@ -85,12 +78,28 @@ class MetaStore extends AbstractStore implements AutoCloseable {
   }
 
   private String get(String key) {
-    return new String(get(key.getBytes()));
+    byte[] value = get(key.getBytes());
+    if (null == value) {
+      return null;
+    }
+    return new String(value);
   }
 
   private byte[] get(byte[] key) {
     try {
       return db.get(key);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  private void delete(String key) {
+    delete(key.getBytes());
+  }
+
+  private void delete(byte[] key) {
+    try {
+      db.delete(key);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }

@@ -4,6 +4,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.TimeUnit;
+
 public class RMQTest {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RMQTest.class);
@@ -14,8 +16,13 @@ public class RMQTest {
     String topic = "events";
     RMQ rmq = RMQ.getInstance();
     rmq.subscribe(topic, consumer);
-    for (int i = 0; i < 5; i++) {
-      rmq.send(topic, "msg: " + i);
+//    for (int i = 0; i < 5; i++) {
+//      rmq.send(topic, "msg: " + i);
+//    }
+    try {
+      TimeUnit.SECONDS.sleep(30);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
     }
   }
 }

@@ -1,10 +1,10 @@
 package com.orctom.rmq;
 
-import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksDB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.List;
 
 public class RMQ implements AutoCloseable {
 
@@ -12,83 +12,38 @@ public class RMQ implements AutoCloseable {
 
   private static final RMQ INSTANCE = new RMQ();
 
-  private MetaStore metaStore;
-
-  private Map<String, Queue> queues = new HashMap<>();
+  private QueueStore queueStore;
 
   private RMQ() {
-    metaStore = MetaStore.getInstance();
+    MetaStore metaStore = MetaStore.getInstance();
+    List<String> queueNames = metaStore.getAllQueues();
+    LOGGER.debug("init queues: {}", queueNames);
+    if (queueNames.isEmpty()) {
+      queueStore = new QueueStore(metaStore);
+    } else {
+      queueNames.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY));
+      queueStore = new QueueStore(metaStore, queueNames);
+    }
   }
 
   public static RMQ getInstance() {
     return INSTANCE;
   }
 
-  public Queue createQueue(String queueName) {
-    return metaStore.getQueueStore().createQueue(queueName);
-  }
-
-  public void deleteQueue(String queueName) {
-    Queue queue = queues.remove(queueName);
-    metaStore.getQueueStore().deleteQueue(queue);
-  }
-
   public void send(String queueName, String message) {
-    metaStore.getQueueStore().push(getQueue(queueName), message);
+    queueStore.push(queueName, message);
   }
 
   public void subscribe(String queueName, RMQConsumer... consumers) {
-    if (null == consumers) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.addConsumers(consumers);
-  }
-
-  public void subscribe(String queueName, Collection<RMQConsumer> consumers) {
-    if (null == consumers || consumers.isEmpty()) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.addConsumers(consumers);
+    queueStore.subscribe(queueName, consumers);
   }
 
   public void unsubscribe(String queueName, RMQConsumer... consumers) {
-    if (null == consumers) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.removeConsumers(consumers);
-  }
-
-  public void unsubscribe(String queueName, Collection<RMQConsumer> consumers) {
-    if (null == consumers || consumers.isEmpty()) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.removeConsumers(consumers);
-  }
-
-  private Queue getQueue(String name) {
-    return queues.computeIfAbsent(name, f -> new Queue(name));
-  }
-
-  MetaStore getMetaStore() {
-    return metaStore;
-  }
-
-  Map<String, Queue> getQueues() {
-    return queues;
+    queueStore.unsubscribe(queueName, consumers);
   }
 
   @Override
   public void close() throws Exception {
-    queues.values().forEach(queue -> {
-      queue.getHandle().close();
-    });
+    queueStore.close();
   }
 }
