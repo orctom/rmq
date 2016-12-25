@@ -1,5 +1,7 @@
 package com.orctom.rmq;
 
+import com.google.common.base.Stopwatch;
+import com.google.common.base.Strings;
 import com.google.common.primitives.Longs;
 import com.orctom.laputa.utils.IdGenerator;
 import com.orctom.rmq.exception.RMQException;
@@ -21,6 +23,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private final MetaStore metaStore;
   private final RocksDB db;
   private final Options options = new Options().setCreateIfMissing(true);
+  private final WriteOptions writeOptions = new WriteOptions();
 
   private final IdGenerator idGenerator = IdGenerator.create();
 
@@ -80,10 +83,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyHandle handle = handles.get(i);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
       queues.put(queueName, queue);
+      startQueue(queue);
     }
   }
 
-  Queue createQueue(String queueName) {
+  private Queue createQueue(String queueName) {
     try {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
       ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
@@ -91,6 +95,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
       queues.put(queueName, queue);
       metaStore.queueCreated(queueName);
+
+      startQueue(queue);
       return queue;
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -107,24 +113,22 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     return queues.computeIfAbsent(name, f -> createQueue(name));
   }
 
-  public void subscribe(String queueName, RMQConsumer... consumers) {
+  void subscribe(String queueName, RMQConsumer... consumers) {
     if (null == consumers) {
       return;
     }
 
     Queue queue = getQueue(queueName);
     queue.addConsumers(consumers);
-    startQueue(queue);
   }
 
-  public void unsubscribe(String queueName, RMQConsumer... consumers) {
+  void unsubscribe(String queueName, RMQConsumer... consumers) {
     if (null == consumers) {
       return;
     }
 
     Queue queue = getQueue(queueName);
     queue.removeConsumers(consumers);
-    stopQueue(queue);
   }
 
   private void startQueue(Queue queue) {
@@ -151,7 +155,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void push(String queueName, String message) {
-    push(getQueue(queueName), String.valueOf(idGenerator.generate()), message);
+    Queue queue = getQueue(queueName);
+    String id = String.valueOf(idGenerator.generate());
+    LOGGER.trace("[{}] new message, {}: {}", queueName, id, message);
+    push(queue, id, message);
   }
 
   private void push(Queue queue, String key, String value) {
@@ -161,7 +168,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private void push(Queue queue, byte[] key, byte[] value) {
     try {
       db.put(queue.getHandle(), key, value);
-      queue.signal();
+      queue.signalNewMessage();
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -171,13 +178,13 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     return db.newIterator(queue.getHandle());
   }
 
-  void remove(Queue queue, String key) {
-    remove(queue, key.getBytes());
+  void delete(Queue queue, String key) {
+    delete(queue, key.getBytes());
   }
 
-  void remove(Queue queue, byte[] key) {
+  void delete(Queue queue, byte[] key) {
     try {
-      db.remove(queue.getHandle(), key);
+      db.delete(queue.getHandle(), writeOptions, key);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -195,46 +202,60 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  String popString(Queue queue) {
-    byte[] value = pop(queue);
-    if (null == value) {
-      return null;
-    }
-
-    return new String(value);
-  }
-
-  byte[] pop(Queue queue) {
-    ColumnFamilyHandle handle = queue.getHandle();
-    RocksIterator iterator = db.newIterator(handle);
-
-    iterator.seekToLast();
-    if (!iterator.isValid()) {
-      return null;
-    }
-
-    byte[] key = iterator.key();
-    byte[] value = iterator.value();
-    try {
-      db.remove(handle, key);
-      return value;
-    } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
-    }
-  }
-
   void move(String key, Queue sourceQueue, Queue targetQueue) {
     move(key.getBytes(), sourceQueue, targetQueue);
   }
 
   void move(byte[] key, Queue sourceQueue, Queue targetQueue) {
     byte[] value = get(sourceQueue, key);
-    remove(sourceQueue, key);
+    delete(sourceQueue, key);
     push(targetQueue, key, value);
+  }
+
+  void cleanDeletedMessages() {
+    LOGGER.debug("Cleaning deleted messages");
+    for (Queue queue : queues.values()) {
+      String queueName = queue.getName();
+      String offset = metaStore.getOffset(queueName);
+      try {
+        if (Strings.isNullOrEmpty(offset)) {
+          continue;
+        }
+        Long start = System.currentTimeMillis();
+        clean(queue, queueName, Long.valueOf(offset));
+        long end = System.currentTimeMillis();
+        LOGGER.debug("Done, took: {} ms", (end - start));
+      } catch (NumberFormatException e) {
+        LOGGER.error("[{}] wrong offset: {}", queueName, offset);
+      } catch (Exception e) {
+        LOGGER.error(e.getMessage(), e);
+      }
+    }
+  }
+
+  private void clean(Queue queue, String queueName, long offset) {
+    LOGGER.trace("[{}] cleaning messages before offset: {} ", queueName, offset);
+    RocksIterator iterator = db.newIterator(queue.getHandle());
+    WriteBatch batch = new WriteBatch();
+    for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+      byte[] key = iterator.key();
+      if (Long.valueOf(new String(key)) >= offset) {
+        break;
+      }
+      batch.remove(queue.getHandle(), iterator.key());
+    }
+    try {
+      if (batch.count() > 0) {
+        db.write(writeOptions, batch);
+      }
+    } catch (RocksDBException e) {
+      LOGGER.error(e.getMessage(), e);
+    }
   }
 
   @Override
   public void close() {
+    queues.values().forEach(this::stopQueue);
     metaStore.close();
     options.close();
     if (null != db) {

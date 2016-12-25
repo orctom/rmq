@@ -31,10 +31,10 @@ public abstract class RockStore {
   public static void read(String id, List<String> queueNames) {
     try {
       List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
-      descriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
       for (String queueName : queueNames) {
         descriptors.add(new ColumnFamilyDescriptor(queueName.getBytes(), new ColumnFamilyOptions()));
       }
+      descriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
       List<ColumnFamilyHandle> handles = new ArrayList<>();
       DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
       RocksDB db = RocksDB.open(dbOptions, getPath(id), descriptors, handles);
@@ -83,7 +83,7 @@ public abstract class RockStore {
   }
 
   public static void main(String[] args) {
-    RockStore.readSolo();
-//    RockStore.readCF();
+//    RockStore.readSolo();
+    RockStore.readCF();
   }
 }

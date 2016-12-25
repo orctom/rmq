@@ -1,5 +1,6 @@
 package com.orctom.rmq;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -8,12 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 public class Queue implements Runnable, AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Queue.class);
+  private static final String SUFFIX_LATER = "_later";
 
   private String name;
   private ColumnFamilyDescriptor descriptor;
@@ -22,10 +23,11 @@ public class Queue implements Runnable, AutoCloseable {
   private MetaStore metaStore;
   private QueueStore queueStore;
 
-  private boolean hasNoMoreMessage = true;
+  private volatile boolean hasNoMoreMessage = true;
   private final Object lock = new Object();
 
-  private List<RMQConsumer> consumers  = new ArrayList<>();
+  private List<RMQConsumer> consumers = new ArrayList<>();
+  private int count = 0;
 
   Queue(String name,
         ColumnFamilyDescriptor descriptor,
@@ -57,52 +59,106 @@ public class Queue implements Runnable, AutoCloseable {
   }
 
   void addConsumers(RMQConsumer... consumers) {
-    addConsumers(Lists.newArrayList(consumers));
-  }
-
-  void addConsumers(Collection<RMQConsumer> consumers) {
-    synchronized (lock) {
-      this.consumers.addAll(consumers);
-      lock.notify();
-    }
+    this.consumers.addAll(Lists.newArrayList(consumers));
+    signalNewConsumer();
   }
 
   void removeConsumers(RMQConsumer... consumers) {
-    removeConsumers(Lists.newArrayList(consumers));
-  }
-
-  void removeConsumers(Collection<RMQConsumer> consumers) {
-    this.consumers.removeAll(consumers);
+    this.consumers.removeAll(Lists.newArrayList(consumers));
   }
 
   @Override
   public void run() {
-    String offset = metaStore.getOffset(name);
-
+    LOGGER.trace("[{}] started.", name);
     while (!Thread.currentThread().isInterrupted()) {
+      String offset = metaStore.getOffset(name);
+      LOGGER.trace("[{}] loading from offset: {}", name, offset);
       try {
-        while (consumers.isEmpty() || hasNoMoreMessage) {
-          lock.wait();
-        }
-        RocksIterator iterator = queueStore.iter(this);
-        for (iterator.seek(offset.getBytes()); iterator.isValid(); iterator.next()) {
-          String newOffset = new String(iterator.key());
-          for (RMQConsumer consumer : consumers) {
-            consumer.onMessage(new String(iterator.value()));
+        if (isToWaitForConsumersAndMessages()) {
+          synchronized (lock) {
+            if (isToWaitForConsumersAndMessages()) {
+              LOGGER.trace("[{}] waiting for consumers or new messages.", name);
+              lock.wait();
+              continue;
+            }
           }
-          metaStore.setOffset(name, newOffset);
         }
+        LOGGER.trace("[{}] loading", name);
+        RocksIterator iterator = getPositionedIterator(offset);
+        sendMessagesToConsumer(iterator);
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
     }
   }
 
-  void signal() {
+  private RocksIterator getPositionedIterator(String offset) {
+    RocksIterator iterator = queueStore.iter(this);
+    if (Strings.isNullOrEmpty(offset)) {
+      iterator.seekToFirst();
+    } else {
+      iterator.seek(offset.getBytes());
+      iterator.next();
+    }
+    return iterator;
+  }
+
+  private void sendMessagesToConsumer(RocksIterator iterator) {
+    int numberOfSentMessages = 0;
+    for (; iterator.isValid(); iterator.next()) {
+      String id = new String(iterator.key());
+      String msg = new String(iterator.value());
+      try {
+        Ack ack = sendToConsumer(msg);
+        if (Ack.LATER == ack) {
+          queueStore.push(name + SUFFIX_LATER, msg);
+        }
+        metaStore.setOffset(name, id);
+      } catch (Exception e) {
+        queueStore.push(name, msg);
+        LOGGER.error(e.getMessage(), e);
+      }
+      numberOfSentMessages++;
+    }
+    if (0 == numberOfSentMessages) {
+      hasNoMoreMessage = true;
+    }
+  }
+
+  private Ack sendToConsumer(String message) {
+    return consumers.get(getNextConsumerIndex()).onMessage(message);
+  }
+
+  private int getNextConsumerIndex() {
+    if (1 == consumers.size()) {
+      return 0;
+    }
+
+    return Math.abs(count++) % consumers.size();
+  }
+
+  private void signalNewConsumer() {
+    if (1 == consumers.size()) {
+      signal();
+    }
+  }
+
+  void signalNewMessage() {
+    if (hasNoMoreMessage) {
+      signal();
+    }
+  }
+
+  private void signal() {
     hasNoMoreMessage = false;
     synchronized (lock) {
       lock.notify();
+      LOGGER.trace("[{}] new messages or consumers signal", name);
     }
+  }
+
+  private boolean isToWaitForConsumersAndMessages() {
+    return hasNoMoreMessage || consumers.isEmpty();
   }
 
   @Override

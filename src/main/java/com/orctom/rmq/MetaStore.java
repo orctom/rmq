@@ -62,6 +62,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
   }
 
   void setOffset(String queueName, String offset) {
+    LOGGER.trace("[{}] new offset: {}", queueName, offset);
     put(queueName + SUFFIX_OFFSET, offset);
   }
 
