@@ -1,8 +1,6 @@
 package com.orctom.rmq;
 
-import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
-import com.google.common.primitives.Longs;
 import com.orctom.laputa.utils.IdGenerator;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
@@ -10,9 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+
+import static com.orctom.rmq.Constants.SUFFIX_LATER;
 
 class QueueStore extends AbstractStore implements AutoCloseable {
 
@@ -120,6 +118,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
     Queue queue = getQueue(queueName);
     queue.addConsumers(consumers);
+
+    if (!queueName.endsWith(SUFFIX_LATER)) {
+      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
+      laterQueue.addConsumers(consumers);
+    }
   }
 
   void unsubscribe(String queueName, RMQConsumer... consumers) {
@@ -129,6 +132,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
     Queue queue = getQueue(queueName);
     queue.removeConsumers(consumers);
+
+    if (!queueName.endsWith(SUFFIX_LATER)) {
+      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
+      laterQueue.removeConsumers(consumers);
+    }
   }
 
   private void startQueue(Queue queue) {

@@ -11,10 +11,11 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.orctom.rmq.Constants.SUFFIX_LATER;
+
 public class Queue implements Runnable, AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Queue.class);
-  private static final String SUFFIX_LATER = "_later";
 
   private String name;
   private ColumnFamilyDescriptor descriptor;
@@ -111,7 +112,7 @@ public class Queue implements Runnable, AutoCloseable {
       try {
         Ack ack = sendToConsumer(msg);
         if (Ack.LATER == ack) {
-          queueStore.push(name + SUFFIX_LATER, msg);
+          queueStore.push(getLaterQueueName(name), msg);
         }
         metaStore.setOffset(name, id);
       } catch (Exception e) {
@@ -123,6 +124,14 @@ public class Queue implements Runnable, AutoCloseable {
     if (0 == numberOfSentMessages) {
       hasNoMoreMessage = true;
     }
+  }
+
+  private String getLaterQueueName(String queueName) {
+    if (queueName.endsWith(SUFFIX_LATER)) {
+      return queueName;
+    }
+
+    return name + SUFFIX_LATER;
   }
 
   private Ack sendToConsumer(String message) {

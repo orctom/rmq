@@ -11,14 +11,14 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.orctom.rmq.Constants.PREFIX_QUEUE;
+import static com.orctom.rmq.Constants.SUFFIX_OFFSET;
+
 class MetaStore extends AbstractStore implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(MetaStore.class);
 
   private static final MetaStore INSTANCE = new MetaStore();
-
-  private static final String PREFIX_QUEUE = "queue_";
-  private static final String SUFFIX_OFFSET = "_offset";
 
   private final Options options = new Options().setCreateIfMissing(true);
   private final RocksDB db;
