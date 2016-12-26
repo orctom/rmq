@@ -6,7 +6,11 @@
     </encoder>
   </appender>
 
-  <logger name="com.orctom" level="trace" additivity="false">
+  <logger name="com.orctom.rmq.DummyConsumer" level="trace" additivity="false">
+    <appender-ref ref="stdout"/>
+  </logger>
+
+  <logger name="com.orctom.rmq.RMQTest" level="trace" additivity="false">
     <appender-ref ref="stdout"/>
   </logger>
 
