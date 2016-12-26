@@ -1,6 +1,7 @@
 package com.orctom.rmq;
 
-import org.joda.time.DateTime;
+import com.orctom.laputa.utils.MutableInt;
+import com.orctom.laputa.utils.SimpleMetrics;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,19 +16,13 @@ public class RMQTest {
   public void test() {
     String topic = "events";
     RMQ rmq = RMQ.getInstance();
-    for (int i = 0; i < 5; i++) {
-      rmq.send(topic, i + "-0-" + DateTime.now().toString("yyyy-MM-dd HH:mm:ss:SSSSSSS"));
-    }
     rmq.subscribe(topic, new DummyConsumer());
-    sleepFor(7, TimeUnit.SECONDS);
-    for (int i = 0; i < 10; i++) {
-      rmq.send(topic, i + "-1-" + DateTime.now().toString("yyyy-MM-dd HH:mm:ss:SSSSSSS"));
+    SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
+    MutableInt counter = metrics.meter("sent");
+    for (int i = 0; i < 10_000_000; i++) {
+      rmq.send(topic, "" + System.currentTimeMillis());
+      counter.increase();
     }
-    sleepFor(7, TimeUnit.SECONDS);
-    for (int i = 0; i < 10; i++) {
-      rmq.send(topic, i + "-2-" + DateTime.now().toString("yyyy-MM-dd HH:mm:ss:SSSSSSS"));
-    }
-
 
     sleepFor(20, TimeUnit.MINUTES);
   }
