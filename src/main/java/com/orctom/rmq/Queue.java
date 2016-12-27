@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 class Queue implements Runnable, AutoCloseable {
 
@@ -96,14 +97,15 @@ class Queue implements Runnable, AutoCloseable {
   }
 
   private RocksIterator getPositionedIterator(String offset) {
-    RocksIterator iterator = queueStore.iter(this);
-    if (Strings.isNullOrEmpty(offset)) {
-      iterator.seekToFirst();
-    } else {
-      iterator.seek(offset.getBytes());
-      iterator.next();
+    try (RocksIterator iterator = queueStore.iter(this)) {
+      if (Strings.isNullOrEmpty(offset)) {
+        iterator.seekToFirst();
+      } else {
+        iterator.seek(offset.getBytes());
+        iterator.next();
+      }
+      return iterator;
     }
-    return iterator;
   }
 
   private void sendMessagesToConsumer(RocksIterator iterator) {
@@ -114,10 +116,21 @@ class Queue implements Runnable, AutoCloseable {
       Message message = new Message(id, msg);
       try {
         Ack ack = sendToConsumer(message);
-        if (Ack.LATER == ack) {
-          queueStore.pushToLater(name, message);
+        switch (ack) {
+          case HALT: {
+            try {
+              TimeUnit.MILLISECONDS.sleep(500);
+            } catch (InterruptedException ignored) {
+            }
+            return;
+          }
+          case LATER: {
+            queueStore.pushToLater(name, message);
+          }
+          default: {
+            metaStore.setOffset(name, id);
+          }
         }
-        metaStore.setOffset(name, id);
       } catch (Exception e) {
         queueStore.pushToLater(name, message);
         LOGGER.error(e.getMessage(), e);
@@ -168,5 +181,6 @@ class Queue implements Runnable, AutoCloseable {
   @Override
   public void close() throws Exception {
     handle.close();
+    queueStore.close();
   }
 }

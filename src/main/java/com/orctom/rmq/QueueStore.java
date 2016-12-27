@@ -161,6 +161,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     push(queue, message);
   }
 
+  void delete(String queueName, String id) {
+    delete(getQueue(queueName), id);
+  }
+
   private boolean isLaterQueue(String queueName) {
     return queueName.endsWith(SUFFIX_LATER);
   }
@@ -170,6 +174,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   // ============================= low level apis ============================
+
+  RocksIterator iter(Queue queue) {
+    return db.newIterator(queue.getHandle());
+  }
 
   private List<ColumnFamilyDescriptor> createColumnFamilyDescriptors(List<String> families) {
     if (families.isEmpty()) {
@@ -219,15 +227,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  RocksIterator iter(Queue queue) {
-    return db.newIterator(queue.getHandle());
-  }
-
-  void delete(Queue queue, String key) {
+  private void delete(Queue queue, String key) {
     delete(queue, key.getBytes());
   }
 
-  void delete(Queue queue, byte[] key) {
+  private void delete(Queue queue, byte[] key) {
     try {
       db.delete(queue.getHandle(), writeOptions, key);
     } catch (RocksDBException e) {
