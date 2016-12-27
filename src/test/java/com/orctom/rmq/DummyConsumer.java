@@ -13,7 +13,7 @@ public class DummyConsumer implements RMQConsumer {
   private SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
 
   @Override
-  public Ack onMessage(String msg) {
+  public Ack onMessage(Message msg) {
     metrics.mark("got");
 //    LOGGER.info("received: {}", msg);
     return Ack.DONE;

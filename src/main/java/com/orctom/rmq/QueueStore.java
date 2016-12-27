@@ -28,6 +28,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private Map<String, Queue> queues = new HashMap<>();
   private Map<String, Thread> queueThreads = new HashMap<>();
 
+  // ============================= constructors ============================
+
   QueueStore(MetaStore metaStore) {
     this.metaStore = metaStore;
     ensureDataDirExist();
@@ -53,6 +55,121 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       throw new RMQException(e.getMessage(), e);
     }
   }
+
+  // ============================= queue apis ============================
+
+  private Queue createQueue(String queueName) {
+    try {
+      ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
+      ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
+      Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
+
+      queues.put(queueName, queue);
+      metaStore.queueCreated(queueName);
+
+      startQueue(queue);
+      return queue;
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  void deleteQueue(String queueName) {
+    dropColumnFamily(queues.get(queueName).getHandle());
+    queues.remove(queueName);
+    metaStore.queueDeleted(queueName);
+  }
+
+  private Queue getQueue(String name) {
+    return queues.computeIfAbsent(name, f -> createQueue(name));
+  }
+
+  private Queue getLaterQueue(String name) {
+    String laterQueueName = name + SUFFIX_LATER;
+    Queue laterQueue = queues.computeIfAbsent(laterQueueName, f -> createQueue(laterQueueName));
+    laterQueue.addConsumers(getQueue(name).getConsumers());
+    return laterQueue;
+  }
+
+  void subscribe(String queueName, RMQConsumer... consumers) {
+    if (null == consumers) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.addConsumers(consumers);
+
+    if (isNotLaterQueue(queueName)) {
+      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
+      laterQueue.addConsumers(consumers);
+    }
+  }
+
+  void unsubscribe(String queueName, RMQConsumer... consumers) {
+    if (null == consumers) {
+      return;
+    }
+
+    Queue queue = getQueue(queueName);
+    queue.removeConsumers(consumers);
+
+    unsubscribeFromLaterQueue(queueName, consumers);
+  }
+
+  private void unsubscribeFromLaterQueue(String queueName, RMQConsumer[] consumers) {
+    if (isNotLaterQueue(queueName)) {
+      Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
+      if (null != laterQueue) {
+        laterQueue.removeConsumers(consumers);
+      }
+    }
+  }
+
+  private void startQueue(Queue queue) {
+    Thread thread = new Thread(queue);
+    thread.start();
+    queueThreads.put(queue.getName(), thread);
+  }
+
+  private void stopQueue(Queue queue) {
+    Thread thread = queueThreads.get(queue.getName());
+    thread.interrupt();
+  }
+
+  void push(String queueName, String message) {
+    push(queueName, message, false);
+  }
+
+  void push(String queueName, Message message) {
+    push(queueName, message, false);
+  }
+
+  void pushToLater(String queueName, Message message) {
+    push(queueName, message, true);
+  }
+
+  private void push(String queueName, String message, boolean isLater) {
+    Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
+    String id = String.valueOf(idGenerator.generate());
+    LOGGER.trace("[{}] new message, {}: {}", queueName, id, message);
+    push(queue, id, message);
+  }
+
+  private void push(String queueName, Message message, boolean isLater) {
+    Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
+    LOGGER.trace("[{}] new message, {}", queueName, message);
+    push(queue, message);
+  }
+
+  private boolean isLaterQueue(String queueName) {
+    return queueName.endsWith(SUFFIX_LATER);
+  }
+
+  private boolean isNotLaterQueue(String queueName) {
+    return !isLaterQueue(queueName);
+  }
+
+  // ============================= low level apis ============================
 
   private List<ColumnFamilyDescriptor> createColumnFamilyDescriptors(List<String> families) {
     if (families.isEmpty()) {
@@ -85,92 +202,12 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  private Queue createQueue(String queueName) {
-    try {
-      ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
-      ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
-      Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
-
-      queues.put(queueName, queue);
-      metaStore.queueCreated(queueName);
-
-      startQueue(queue);
-      return queue;
-    } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
-    }
-  }
-
-  void deleteQueue(String queueName) {
-    dropColumnFamily(queues.get(queueName).getHandle());
-    queues.remove(queueName);
-    metaStore.queueDeleted(queueName);
-  }
-
-  private Queue getQueue(String name) {
-    return queues.computeIfAbsent(name, f -> createQueue(name));
-  }
-
-  void subscribe(String queueName, RMQConsumer... consumers) {
-    if (null == consumers) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.addConsumers(consumers);
-
-    if (!queueName.endsWith(SUFFIX_LATER)) {
-      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
-      laterQueue.addConsumers(consumers);
-    }
-  }
-
-  void unsubscribe(String queueName, RMQConsumer... consumers) {
-    if (null == consumers) {
-      return;
-    }
-
-    Queue queue = getQueue(queueName);
-    queue.removeConsumers(consumers);
-
-    if (!queueName.endsWith(SUFFIX_LATER)) {
-      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
-      laterQueue.removeConsumers(consumers);
-    }
-  }
-
-  private void startQueue(Queue queue) {
-    Thread thread = new Thread(queue);
-    thread.start();
-    queueThreads.put(queue.getName(), thread);
-  }
-
-  private void stopQueue(Queue queue) {
-    Thread thread = queueThreads.get(queue.getName());
-    thread.interrupt();
-  }
-
-  private void dropColumnFamily(ColumnFamilyHandle handle) {
-    if (null == handle) {
-      return;
-    }
-
-    try {
-      db.dropColumnFamily(handle);
-    } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
-    }
-  }
-
-  void push(String queueName, String message) {
-    Queue queue = getQueue(queueName);
-    String id = String.valueOf(idGenerator.generate());
-    LOGGER.trace("[{}] new message, {}: {}", queueName, id, message);
-    push(queue, id, message);
-  }
-
   private void push(Queue queue, String key, String value) {
     push(queue, key.getBytes(), value.getBytes());
+  }
+
+  private void push(Queue queue, Message message) {
+    push(queue, message.getId().getBytes(), message.getValue().getBytes());
   }
 
   private void push(Queue queue, byte[] key, byte[] value) {
@@ -218,6 +255,18 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     byte[] value = get(sourceQueue, key);
     delete(sourceQueue, key);
     push(targetQueue, key, value);
+  }
+
+  private void dropColumnFamily(ColumnFamilyHandle handle) {
+    if (null == handle) {
+      return;
+    }
+
+    try {
+      db.dropColumnFamily(handle);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
   }
 
   void cleanDeletedMessages() {

@@ -11,9 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.orctom.rmq.Constants.SUFFIX_LATER;
-
-public class Queue implements Runnable, AutoCloseable {
+class Queue implements Runnable, AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Queue.class);
 
@@ -60,7 +58,11 @@ public class Queue implements Runnable, AutoCloseable {
   }
 
   void addConsumers(RMQConsumer... consumers) {
-    this.consumers.addAll(Lists.newArrayList(consumers));
+    addConsumers(Lists.newArrayList(consumers));
+  }
+
+  void addConsumers(List<RMQConsumer> consumers) {
+    this.consumers.addAll(consumers);
     signalNewConsumer();
   }
 
@@ -109,14 +111,15 @@ public class Queue implements Runnable, AutoCloseable {
     for (; iterator.isValid(); iterator.next()) {
       String id = new String(iterator.key());
       String msg = new String(iterator.value());
+      Message message = new Message(id, msg);
       try {
-        Ack ack = sendToConsumer(msg);
+        Ack ack = sendToConsumer(message);
         if (Ack.LATER == ack) {
-          queueStore.push(getLaterQueueName(name), msg);
+          queueStore.pushToLater(name, message);
         }
         metaStore.setOffset(name, id);
       } catch (Exception e) {
-        queueStore.push(name, msg);
+        queueStore.pushToLater(name, message);
         LOGGER.error(e.getMessage(), e);
       }
       numberOfSentMessages++;
@@ -126,15 +129,7 @@ public class Queue implements Runnable, AutoCloseable {
     }
   }
 
-  private String getLaterQueueName(String queueName) {
-    if (queueName.endsWith(SUFFIX_LATER)) {
-      return queueName;
-    }
-
-    return name + SUFFIX_LATER;
-  }
-
-  private Ack sendToConsumer(String message) {
+  private Ack sendToConsumer(Message message) {
     return consumers.get(getNextConsumerIndex()).onMessage(message);
   }
 
