@@ -15,6 +15,7 @@ public class RMQ implements AutoCloseable {
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+  private static RMQOptions options = new RMQOptions();
   private static final RMQ INSTANCE = new RMQ();
 
   private QueueStore queueStore;
@@ -24,12 +25,16 @@ public class RMQ implements AutoCloseable {
     List<String> queueNames = metaStore.getAllQueues();
     LOGGER.debug("init queues: {}", queueNames);
     if (queueNames.isEmpty()) {
-      queueStore = new QueueStore(metaStore);
+      queueStore = new QueueStore(metaStore, options.getTtl());
     } else {
       queueNames.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY));
-      queueStore = new QueueStore(metaStore, queueNames);
+      queueStore = new QueueStore(metaStore, queueNames, options.getTtl());
     }
     startCleaner();
+  }
+
+  public static void setOption(RMQOptions options) {
+    RMQ.options = options;
   }
 
   public static RMQ getInstance() {

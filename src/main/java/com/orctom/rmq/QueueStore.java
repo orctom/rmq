@@ -19,8 +19,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private static final String ID = "queues";
 
   private final MetaStore metaStore;
-  private final RocksDB db;
+  private final TtlDB db;
   private final Options options = new Options().setCreateIfMissing(true);
+  private final DBOptions dbOptions = new DBOptions();
   private final WriteOptions writeOptions = new WriteOptions();
 
   private final IdGenerator idGenerator = IdGenerator.create();
@@ -30,17 +31,17 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   // ============================= constructors ============================
 
-  QueueStore(MetaStore metaStore) {
+  QueueStore(MetaStore metaStore, int ttl) {
     this.metaStore = metaStore;
     ensureDataDirExist();
     try {
-      db = RocksDB.open(options, getPath(ID));
+      db = TtlDB.open(options, getPath(ID), ttl, false);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  QueueStore(MetaStore metaStore, List<String> queueNames) {
+  QueueStore(MetaStore metaStore, List<String> queueNames, int ttl) {
     this.metaStore = metaStore;
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
@@ -48,8 +49,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     ensureDataDirExist();
     List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
+    List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
     try {
-      db = RocksDB.open(getPath(ID), descriptors, handles);
+      db = TtlDB.open(dbOptions, getPath(ID), descriptors, handles, ttlList, false);
       initQueues(queueNames, descriptors, handles);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -197,6 +199,14 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     );
   }
 
+  private List<Integer> createTTLs(int size, int ttl) {
+    List<Integer> ttlList = new ArrayList<>(size);
+    for (int i = 0; i < size; i++) {
+      ttlList.add(ttl);
+    }
+    return ttlList;
+  }
+
   private void initQueues(List<String> queueNames,
                           List<ColumnFamilyDescriptor> descriptors,
                           List<ColumnFamilyHandle> handles) {
@@ -319,6 +329,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     queues.values().forEach(this::stopQueue);
     metaStore.close();
     options.close();
+    dbOptions.close();
     if (null != db) {
       db.close();
     }
