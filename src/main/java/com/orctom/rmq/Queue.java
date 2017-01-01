@@ -122,7 +122,6 @@ class Queue implements Runnable, AutoCloseable {
             try {
               TimeUnit.MILLISECONDS.sleep(500);
             } catch (InterruptedException ignored) {
-              ignored.printStackTrace();
             }
             return;
           }
