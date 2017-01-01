@@ -88,8 +88,9 @@ class Queue implements Runnable, AutoCloseable {
           }
         }
         LOGGER.trace("[{}] loading", name);
-        RocksIterator iterator = getPositionedIterator(offset);
-        sendMessagesToConsumer(iterator);
+        try (RocksIterator iterator = getPositionedIterator(offset)) {
+          sendMessagesToConsumer(iterator);
+        }
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
@@ -97,15 +98,15 @@ class Queue implements Runnable, AutoCloseable {
   }
 
   private RocksIterator getPositionedIterator(String offset) {
-    try (RocksIterator iterator = queueStore.iter(this)) {
-      if (Strings.isNullOrEmpty(offset)) {
-        iterator.seekToFirst();
-      } else {
-        iterator.seek(offset.getBytes());
-        iterator.next();
-      }
-      return iterator;
+    RocksIterator iterator = queueStore.iter(this);
+    if (Strings.isNullOrEmpty(offset)) {
+      iterator.seekToFirst();
+    } else {
+      iterator.seek(offset.getBytes());
+      iterator.next();
     }
+    System.out.println(iterator.isValid());
+    return iterator;
   }
 
   private void sendMessagesToConsumer(RocksIterator iterator) {
@@ -121,6 +122,7 @@ class Queue implements Runnable, AutoCloseable {
             try {
               TimeUnit.MILLISECONDS.sleep(500);
             } catch (InterruptedException ignored) {
+              ignored.printStackTrace();
             }
             return;
           }
