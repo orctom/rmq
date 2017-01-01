@@ -16,16 +16,20 @@ public class RMQTest {
   public void test() {
     String topic = "events";
     RMQ.setTtl(1000);
-    RMQ rmq = RMQ.getInstance();
-    rmq.subscribe(topic, new DummyConsumer());
-    SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
-    MutableInt counter = metrics.meter("sent");
-    for (int i = 0; i < 10_000_000; i++) {
-      rmq.send(topic, "" + System.currentTimeMillis());
-      counter.increase();
-    }
+    try (RMQ rmq = RMQ.getInstance()) {
+      rmq.subscribe(topic, new DummyConsumer());
+      SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
+      MutableInt counter = metrics.meter("sent");
+      for (int i = 0; i < 1_0; i++) {
+        rmq.send(topic, "" + System.currentTimeMillis());
+        counter.increase();
+      }
 
-    sleepFor(20, TimeUnit.MINUTES);
+      sleepFor(10, TimeUnit.SECONDS);
+    }
+    System.out.println("..............");
+    sleepFor(5, TimeUnit.SECONDS);
+    System.out.println("terminate.");
   }
 
   private void sleepFor(long time, TimeUnit timeUnit) {

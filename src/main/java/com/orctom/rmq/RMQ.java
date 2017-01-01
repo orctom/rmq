@@ -72,14 +72,21 @@ public class RMQ implements AutoCloseable {
   }
 
   @Override
-  public void close() throws Exception {
-    queueStore.close();
+  public void close() {
+    LOGGER.trace("Closing...");
     shutdownScheduler();
+    queueStore.close();
+    LOGGER.trace("Closed.");
   }
 
-  private void shutdownScheduler() throws Exception {
+  private void shutdownScheduler() {
+    LOGGER.trace("Shutting down scheduler...");
     scheduler.shutdown();
-    scheduler.awaitTermination(2, TimeUnit.SECONDS);
+    try {
+      scheduler.awaitTermination(2, TimeUnit.SECONDS);
+    } catch (InterruptedException ignored) {
+    }
     scheduler.shutdownNow();
+    LOGGER.trace("Scheduler stopped.");
   }
 }

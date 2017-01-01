@@ -295,9 +295,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
         Long start = System.currentTimeMillis();
         clean(queue, queueName, Long.valueOf(offset));
         long end = System.currentTimeMillis();
-        LOGGER.debug("Done, took: {} ms", (end - start));
+        LOGGER.debug("Cleaning took: {} ms", (end - start));
       } catch (NumberFormatException e) {
-        LOGGER.error("[{}] wrong offset: {}", queueName, offset);
+        LOGGER.error("[{}] cleaning wrong offset: {}", queueName, offset);
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
@@ -326,12 +326,14 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   @Override
   public void close() {
+    LOGGER.trace("Closing QueueStore...");
     queues.values().forEach(this::stopQueue);
-    metaStore.close();
     options.close();
     dbOptions.close();
     if (null != db) {
       db.close();
     }
+    metaStore.close();
+    LOGGER.trace("Closed QueueStore.");
   }
 }

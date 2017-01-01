@@ -91,10 +91,13 @@ class Queue implements Runnable, AutoCloseable {
         try (RocksIterator iterator = getPositionedIterator(offset)) {
           sendMessagesToConsumer(iterator);
         }
+      } catch (InterruptedException ignored) {
+        LOGGER.warn("[{}] Stopping...", name);
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
     }
+    LOGGER.warn("[{}] Stopped.", name);
   }
 
   private RocksIterator getPositionedIterator(String offset) {
@@ -105,7 +108,6 @@ class Queue implements Runnable, AutoCloseable {
       iterator.seek(offset.getBytes());
       iterator.next();
     }
-    System.out.println(iterator.isValid());
     return iterator;
   }
 

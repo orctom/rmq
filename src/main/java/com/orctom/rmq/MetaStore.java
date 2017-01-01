@@ -108,9 +108,11 @@ class MetaStore extends AbstractStore implements AutoCloseable {
 
   @Override
   public void close() {
+    LOGGER.trace("Closing MetaStore...");
     options.close();
     if (null != db) {
       db.close();
     }
+    LOGGER.trace("Closed MetaStore...");
   }
 }
