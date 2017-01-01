@@ -15,6 +15,7 @@ public class RMQTest {
   @Test
   public void test() {
     String topic = "events";
+    RMQ.setTtl(1000);
     RMQ rmq = RMQ.getInstance();
     rmq.subscribe(topic, new DummyConsumer());
     SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
