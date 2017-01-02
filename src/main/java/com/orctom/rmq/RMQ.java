@@ -49,6 +49,10 @@ public class RMQ implements AutoCloseable {
     queueStore.push(queueName, message);
   }
 
+  public void send(String queueName, Message message) {
+    queueStore.push(queueName, message);
+  }
+
   public void delete(String queueName, String id) {
     queueStore.delete(queueName, id);
   }
