@@ -16,7 +16,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(QueueStore.class);
 
-  private static final String ID = "queues";
+  private static final String NAME = "queues";
 
   private final MetaStore metaStore;
   private final TtlDB db;
@@ -35,7 +35,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     this.metaStore = metaStore;
     ensureDataDirExist();
     try {
-      db = TtlDB.open(options, getPath(ID), ttl, false);
+      db = TtlDB.open(options, getPath(NAME), ttl, false);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -51,7 +51,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     List<ColumnFamilyHandle> handles = new ArrayList<>();
     List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
     try {
-      db = TtlDB.open(dbOptions, getPath(ID), descriptors, handles, ttlList, false);
+      db = TtlDB.open(dbOptions, getPath(NAME), descriptors, handles, ttlList, false);
       initQueues(queueNames, descriptors, handles);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
