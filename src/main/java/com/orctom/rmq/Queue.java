@@ -146,15 +146,28 @@ class Queue implements Runnable, AutoCloseable {
   }
 
   private Ack sendToConsumer(Message message) {
-    return consumers.get(getNextConsumerIndex()).onMessage(message);
+    if (hasNoConsumers()) {
+      return Ack.HALT;
+    }
+
+    try {
+      return consumers.get(getNextConsumerIndex()).onMessage(message);
+    } catch (IndexOutOfBoundsException ignored) {
+      return Ack.HALT;
+    }
   }
 
   private int getNextConsumerIndex() {
-    if (1 == consumers.size()) {
+    int size = consumers.size();
+    if (1 == size) {
       return 0;
     }
 
-    return Math.abs(count++) % consumers.size();
+    return Math.abs(count++) % size;
+  }
+
+  private boolean hasNoConsumers() {
+    return 0 == consumers.size();
   }
 
   private void signalNewConsumer() {
