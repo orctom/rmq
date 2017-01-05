@@ -50,10 +50,12 @@ public class RMQ implements AutoCloseable {
   }
 
   public void subscribe(String queueName, RMQConsumer... consumers) {
+    LOGGER.debug("[{}] subscribed by {}.", queueName, consumers);
     queueStore.subscribe(queueName, consumers);
   }
 
   public void unsubscribe(String queueName, RMQConsumer... consumers) {
+    LOGGER.debug("[{}] unsubscribe by {}.", queueName, consumers);
     queueStore.unsubscribe(queueName, consumers);
   }
 
@@ -69,20 +71,20 @@ public class RMQ implements AutoCloseable {
 
   @Override
   public void close() {
-    LOGGER.trace("Closing...");
+    LOGGER.debug("Closing...");
     shutdownScheduler();
     queueStore.close();
-    LOGGER.trace("Closed.");
+    LOGGER.debug("Closed.");
   }
 
   private void shutdownScheduler() {
-    LOGGER.trace("Shutting down scheduler...");
+    LOGGER.debug("Shutting down scheduler...");
     scheduler.shutdown();
     try {
       scheduler.awaitTermination(2, TimeUnit.SECONDS);
     } catch (InterruptedException ignored) {
     }
     scheduler.shutdownNow();
-    LOGGER.trace("Scheduler stopped.");
+    LOGGER.debug("Scheduler stopped.");
   }
 }
