@@ -15,7 +15,8 @@ public class RMQOptions {
    */
   private String id;
 
-  private RMQOptions() {}
+  private RMQOptions() {
+  }
 
   public static RMQOptions getInstance() {
     return INSTANCE;
