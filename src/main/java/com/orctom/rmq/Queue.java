@@ -115,7 +115,7 @@ class Queue implements Runnable, AutoCloseable {
     int numberOfSentMessages = 0;
     for (; iterator.isValid(); iterator.next()) {
       String id = new String(iterator.key());
-      String msg = new String(iterator.value());
+      byte[] msg = iterator.value();
       Message message = new Message(id, msg);
       try {
         Ack ack = sendToConsumer(message);

@@ -225,7 +225,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   private void push(Queue queue, Message message) {
-    push(queue, message.getId().getBytes(), message.getValue().getBytes());
+    push(queue, message.getId().getBytes(), message.getData());
   }
 
   private void push(Queue queue, byte[] key, byte[] value) {
