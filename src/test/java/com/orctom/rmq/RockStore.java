@@ -17,12 +17,15 @@ public abstract class RockStore {
   private static Options options = new Options().setCreateIfMissing(true);
 
   private static String getPath(String id) {
-    return "data/" + id;
+    return "/home/chenhao/workspaces-hao/pipeline/.data/roleB/" + id;
+//    return "data/" + id;
   }
 
   public static RocksDB read(String id) {
     try {
-      return RocksDB.open(options, getPath(id));
+      String path = getPath(id);
+      System.out.println(path);
+      return RocksDB.open(options, path);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -34,13 +37,16 @@ public abstract class RockStore {
       for (String queueName : queueNames) {
         descriptors.add(new ColumnFamilyDescriptor(queueName.getBytes(), new ColumnFamilyOptions()));
       }
+      queueNames.add("default");
       descriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
       List<ColumnFamilyHandle> handles = new ArrayList<>();
       DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
       RocksDB db = RocksDB.open(dbOptions, getPath(id), descriptors, handles);
+      int i = 0;
       for (ColumnFamilyHandle handle : handles) {
-        System.out.println("handle: " + handle);
+        System.out.println(queueNames.get(i));
         iterate(db.newIterator(handle));
+        i++;
       }
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -58,7 +64,7 @@ public abstract class RockStore {
 
   static void readSolo() {
     try {
-      RocksDB db = read("queues");
+      RocksDB db = read("meta");
       RocksIterator iterator = db.newIterator();
       iterate(iterator);
     } catch (Exception e) {
@@ -68,7 +74,7 @@ public abstract class RockStore {
 
   static void readCF() {
     try {
-      read("queues", Lists.newArrayList("events"));
+      read("queues", Lists.newArrayList("inbox", "inbox_later", "ready", "ready_later", "sent"));
     } catch (Exception e) {
       e.printStackTrace();
     }

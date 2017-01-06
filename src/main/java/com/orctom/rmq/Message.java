@@ -5,24 +5,24 @@ import java.io.Serializable;
 public class Message implements Serializable {
 
   private String id;
-  private String value;
+  private byte[] data;
 
-  public Message(String id, String value) {
+  public Message(String id, byte[] data) {
     this.id = id;
-    this.value = value;
+    this.data = data;
   }
 
   public String getId() {
     return id;
   }
 
-  public String getValue() {
-    return value;
+  public byte[] getData() {
+    return data;
   }
 
   @Override
   public String toString() {
-    return id + ": " + value;
+    return id + ": " + new String(data);
   }
 
   @Override
