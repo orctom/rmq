@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -105,8 +106,11 @@ class Queue implements Runnable, AutoCloseable {
     if (Strings.isNullOrEmpty(offset)) {
       iterator.seekToFirst();
     } else {
-      iterator.seek(offset.getBytes());
-      iterator.next();
+      byte[] offsetBytes = offset.getBytes();
+      iterator.seek(offsetBytes);
+      if (Arrays.equals(offsetBytes, iterator.key())) {
+        iterator.next();
+      }
     }
     return iterator;
   }
