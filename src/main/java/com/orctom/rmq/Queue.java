@@ -155,10 +155,19 @@ class Queue implements Runnable, AutoCloseable {
     }
 
     try {
-      return consumers.get(getNextConsumerIndex()).onMessage(message);
+      RMQConsumer consumer = getConsumer();
+      if (null == consumer) {
+        consumer = getConsumer();
+      }
+      return consumer.onMessage(message);
     } catch (IndexOutOfBoundsException ignored) {
       return Ack.HALT;
     }
+  }
+
+  private RMQConsumer getConsumer() {
+    int index = getNextConsumerIndex();
+    return consumers.get(index);
   }
 
   private int getNextConsumerIndex() {
