@@ -2,43 +2,39 @@ package com.orctom.rmq;
 
 public class RMQOptions {
 
-  private static final RMQOptions INSTANCE = new RMQOptions();
-
-  /**
-   * Default: 90 minutes<br/>
-   * value is in <code>seconds</code>
-   */
-  private int ttl = 5400;
+  static final String DEFAULT_ID = "default";
+  static final int DEFAULT_TTL = 7200;
 
   /**
    * Optional ID that will be used as the parent directory of the data store.
    */
-  private String id;
+  private String id = DEFAULT_ID;
 
-  private RMQOptions() {
-  }
+  /**
+   * Default: 120 minutes<br/>
+   * value is in <code>seconds</code>
+   */
+  private int ttl;
 
-  public static RMQOptions getInstance() {
-    return INSTANCE;
-  }
+  private boolean batchMode;
 
-  public int getTtl() {
-    return ttl;
-  }
-
-  public RMQOptions setTtl(int ttl) {
-    this.ttl = ttl;
-    return this;
-  }
-
-  public String getId() {
-    return id;
-  }
-
-  public RMQOptions setId(String id) {
+  public RMQOptions(String id, int ttl, boolean batchMode) {
     if (null != id) {
       this.id = id.replaceAll("\\W", "_");
     }
-    return this;
+    this.ttl = ttl;
+    this.batchMode = batchMode;
+  }
+
+  String getId() {
+    return id;
+  }
+
+  int getTtl() {
+    return ttl;
+  }
+
+  public boolean isBatchMode() {
+    return batchMode;
   }
 }

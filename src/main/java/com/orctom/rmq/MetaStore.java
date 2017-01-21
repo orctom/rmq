@@ -19,22 +19,16 @@ class MetaStore extends AbstractStore implements AutoCloseable {
   private static final Logger LOGGER = LoggerFactory.getLogger(MetaStore.class);
 
   private static final String NAME = "meta";
-  private static final MetaStore INSTANCE = new MetaStore();
 
   private final Options options = new Options().setCreateIfMissing(true);
   private final RocksDB db;
 
-  private MetaStore() {
-    ensureDataDirExist();
+  MetaStore(String id) {
     try {
-      db = RocksDB.open(options, getPath(NAME));
+      db = RocksDB.open(options, getPath(id, NAME));
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
-  }
-
-  static MetaStore getInstance() {
-    return INSTANCE;
   }
 
   List<String> getAllQueues() {

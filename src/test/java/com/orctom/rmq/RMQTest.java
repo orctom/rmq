@@ -15,8 +15,8 @@ public class RMQTest {
   @Test
   public void test() {
     String topic = "events";
-    RMQOptions.getInstance().setId("dummy").setTtl(1000);
-    try (RMQ rmq = RMQ.getInstance()) {
+    RMQOptions options = new RMQOptions("dummy", 1000, false);
+    try (RMQ rmq = RMQ.getInstance(options)) {
       rmq.subscribe(topic, new DummyConsumer());
       SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
       MutableInt counter = metrics.meter("sent");

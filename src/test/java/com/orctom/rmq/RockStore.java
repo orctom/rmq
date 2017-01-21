@@ -17,8 +17,8 @@ public abstract class RockStore {
   private static Options options = new Options().setCreateIfMissing(true);
 
   private static String getPath(String id) {
-    return "/home/chenhao/workspaces-hao/pipeline/.data/roleB/" + id;
-//    return "data/" + id;
+//    return "/home/chenhao/workspaces-hao/pipeline/.data/roleB/" + id;
+    return ".data/dummy/" + id;
   }
 
   public static RocksDB read(String id) {
@@ -89,7 +89,7 @@ public abstract class RockStore {
   }
 
   public static void main(String[] args) {
-//    RockStore.readSolo();
-    RockStore.readCF();
+    RockStore.readSolo();
+//    RockStore.readCF();
   }
 }
