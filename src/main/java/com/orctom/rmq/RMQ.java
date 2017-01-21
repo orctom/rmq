@@ -4,10 +4,15 @@ import org.rocksdb.RocksDB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import static com.orctom.rmq.RMQOptions.DEFAULT_ID;
+import static com.orctom.rmq.RMQOptions.DEFAULT_TTL;
 
 public class RMQ implements AutoCloseable {
 
@@ -15,26 +20,33 @@ public class RMQ implements AutoCloseable {
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-  private static final RMQ INSTANCE = new RMQ();
+  private static final Map<String, RMQ> INSTANCES = new HashMap<>();
+
+  private final RMQOptions options;
 
   private QueueStore queueStore;
 
-  private RMQ() {
-    RMQOptions options = RMQOptions.getInstance();
-    MetaStore metaStore = MetaStore.getInstance();
+  private RMQ(String id, int ttl, boolean batchMode) {
+    options = new RMQOptions(id, ttl, batchMode);
+
+    MetaStore metaStore = new MetaStore(id);
     List<String> queueNames = metaStore.getAllQueues();
     LOGGER.debug("init queues: {}", queueNames);
     if (queueNames.isEmpty()) {
-      queueStore = new QueueStore(metaStore, options.getTtl());
+      queueStore = new QueueStore(metaStore, id, ttl, batchMode);
     } else {
       queueNames.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY));
-      queueStore = new QueueStore(metaStore, queueNames, options.getTtl());
+      queueStore = new QueueStore(metaStore, queueNames, id, ttl, batchMode);
     }
     startCleaner();
   }
 
   public static RMQ getInstance() {
-    return INSTANCE;
+    return INSTANCES.computeIfAbsent(DEFAULT_ID, id -> new RMQ(id, DEFAULT_TTL, false));
+  }
+
+  public static RMQ getInstance(RMQOptions options) {
+    return INSTANCES.computeIfAbsent(options.getId(), id -> new RMQ(id, options.getTtl(), options.isBatchMode()));
   }
 
   public void send(String queueName, String message) {

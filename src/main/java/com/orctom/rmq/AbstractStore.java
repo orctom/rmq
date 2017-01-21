@@ -1,6 +1,5 @@
 package com.orctom.rmq;
 
-import com.google.common.base.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,14 +10,15 @@ abstract class AbstractStore {
   private static final String ROOT_DIR = ".data";
   private final Logger logger = LoggerFactory.getLogger(getClass());
 
-  String getPath(String name) {
-    String path = getDataDirPath() + name;
+  String getPath(String id, String name) {
+    String path = ROOT_DIR + File.separator + id + File.separator + name;
     logger.trace("Path for storage: {}", path);
+    ensureDataDirExist(path);
     return path;
   }
 
-  protected void ensureDataDirExist() {
-    File dataDir = new File(getDataDirPath());
+  protected void ensureDataDirExist(String path) {
+    File dataDir = new File(path).getParentFile();
     if (dataDir.exists()) {
       return;
     }
@@ -26,12 +26,7 @@ abstract class AbstractStore {
     logger.trace("Ensuring data dir existence, created: {}", created);
   }
 
-  private String getDataDirPath() {
-    String id = RMQOptions.getInstance().getId();
-    if (Strings.isNullOrEmpty(id)) {
-      return ROOT_DIR + File.separator;
-    } else {
-      return ROOT_DIR + File.separator + id + File.separator;
-    }
+  private String getDataDirPath(String id) {
+    return ROOT_DIR + File.separator + id + File.separator;
   }
 }

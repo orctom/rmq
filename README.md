@@ -17,21 +17,28 @@ Add it to your project, e.g. in Maven:
     </dependency>
 ```
 
+Acquiring a RMQ instance (multiton):
+```
+RMQ rmq = RMQ.getInstance();
+
+// or
+RMQOptions options = new RMQOptions(
+    "dummy", // id
+    1000,    // ttl in seconds
+    false    // batch mode persistent
+);
+RMQ rmq = RMQ.getInstance(options);
+```
+
 Subscribing:
 ```
-RMQ.getInstance().subscribe(topic, new RMQConsumer() {...});
+rmq.subscribe(topic, new RMQConsumer() {...});
 ```
 
 Sending message to the Queue:
 ```
 RMQ.getInstance().send(topic, "payload");
 ```
-
-Changing default TTL:
-```
-RMQOptions.getInstance().setTtl(1000);
-```
-**It must be called before any calls to `RMQ.getInstance()`**
 
 Closing it when shutting down:
 ```

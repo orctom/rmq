@@ -31,27 +31,25 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   // ============================= constructors ============================
 
-  QueueStore(MetaStore metaStore, int ttl) {
+  QueueStore(MetaStore metaStore, String id, int ttl, boolean batchMode) {
     this.metaStore = metaStore;
-    ensureDataDirExist();
     try {
-      db = TtlDB.open(options, getPath(NAME), ttl, false);
+      db = TtlDB.open(options, getPath(id, NAME), ttl, false);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  QueueStore(MetaStore metaStore, List<String> queueNames, int ttl) {
+  QueueStore(MetaStore metaStore, List<String> queueNames, String id, int ttl, boolean batchMode) {
     this.metaStore = metaStore;
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
     }
-    ensureDataDirExist();
     List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
     List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
     try {
-      db = TtlDB.open(dbOptions, getPath(NAME), descriptors, handles, ttlList, false);
+      db = TtlDB.open(dbOptions, getPath(id, NAME), descriptors, handles, ttlList, false);
       initQueues(queueNames, descriptors, handles);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);

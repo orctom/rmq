@@ -15,4 +15,4 @@ target/
 *tmp*
 *temp*
 diagrams
-data
+.data
