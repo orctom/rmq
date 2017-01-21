@@ -4,15 +4,12 @@ import org.rocksdb.RocksDB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
-import static com.orctom.rmq.RMQOptions.DEFAULT_ID;
-import static com.orctom.rmq.RMQOptions.DEFAULT_TTL;
 
 public class RMQ implements AutoCloseable {
 
@@ -20,33 +17,32 @@ public class RMQ implements AutoCloseable {
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-  private static final Map<String, RMQ> INSTANCES = new HashMap<>();
+  private static final Map<String, RMQ> INSTANCES = new ConcurrentHashMap<>();
 
-  private final RMQOptions options;
-
+  private RMQOptions options;
   private QueueStore queueStore;
 
-  private RMQ(String id, int ttl, boolean batchMode) {
-    options = new RMQOptions(id, ttl, batchMode);
+  private RMQ(RMQOptions options) {
+    this.options = options;
 
-    MetaStore metaStore = new MetaStore(id);
+    MetaStore metaStore = new MetaStore(options.getId());
     List<String> queueNames = metaStore.getAllQueues();
     LOGGER.debug("init queues: {}", queueNames);
     if (queueNames.isEmpty()) {
-      queueStore = new QueueStore(metaStore, id, ttl, batchMode);
+      queueStore = new QueueStore(metaStore, options);
     } else {
       queueNames.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY));
-      queueStore = new QueueStore(metaStore, queueNames, id, ttl, batchMode);
+      queueStore = new QueueStore(metaStore, queueNames, options);
     }
     startCleaner();
   }
 
   public static RMQ getInstance() {
-    return INSTANCES.computeIfAbsent(DEFAULT_ID, id -> new RMQ(id, DEFAULT_TTL, false));
+    return getInstance(new RMQOptions());
   }
 
   public static RMQ getInstance(RMQOptions options) {
-    return INSTANCES.computeIfAbsent(options.getId(), id -> new RMQ(id, options.getTtl(), options.isBatchMode()));
+    return INSTANCES.computeIfAbsent(options.getId(), id -> new RMQ(options));
   }
 
   public void send(String queueName, String message) {
@@ -75,7 +71,7 @@ public class RMQ implements AutoCloseable {
     LOGGER.debug("Starting cleaner");
     scheduler.scheduleWithFixedDelay(
         () -> queueStore.cleanDeletedMessages(),
-        5,
+        0,
         15,
         TimeUnit.SECONDS
     );
@@ -86,6 +82,8 @@ public class RMQ implements AutoCloseable {
     LOGGER.debug("Closing...");
     shutdownScheduler();
     queueStore.close();
+
+    INSTANCES.remove(options.getId());
     LOGGER.debug("Closed.");
   }
 

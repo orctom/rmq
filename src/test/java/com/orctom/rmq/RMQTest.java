@@ -21,7 +21,8 @@ public class RMQTest {
       SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
       MutableInt counter = metrics.meter("sent");
       for (int i = 0; i < 1_0; i++) {
-        rmq.send(topic, "" + System.currentTimeMillis());
+        String msg = String.valueOf(System.currentTimeMillis());
+        rmq.send(topic, msg);
         counter.increase();
       }
 

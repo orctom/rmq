@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 class Queue implements Runnable, AutoCloseable {
 
@@ -59,13 +60,15 @@ class Queue implements Runnable, AutoCloseable {
     return consumers;
   }
 
-  void addConsumers(RMQConsumer... consumers) {
-    addConsumers(Lists.newArrayList(consumers));
+  Queue addConsumers(RMQConsumer... consumers) {
+    return addConsumers(Lists.newArrayList(consumers));
   }
 
-  void addConsumers(List<RMQConsumer> consumers) {
+  Queue addConsumers(List<RMQConsumer> consumers) {
     this.consumers.addAll(consumers);
+    this.consumers = this.consumers.stream().distinct().collect(Collectors.toList());
     signalNewConsumer();
+    return this;
   }
 
   void removeConsumers(RMQConsumer... consumers) {

@@ -15,7 +15,7 @@ public class DummyConsumer implements RMQConsumer {
   @Override
   public Ack onMessage(Message msg) {
     metrics.mark("got");
-//    LOGGER.info("received: {}", msg);
+//    LOGGER.debug("received: {}", msg);
     return Ack.DONE;
   }
 }

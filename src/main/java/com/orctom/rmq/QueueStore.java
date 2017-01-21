@@ -1,5 +1,6 @@
 package com.orctom.rmq;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.orctom.laputa.utils.IdGenerator;
 import com.orctom.rmq.exception.RMQException;
@@ -8,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import static com.orctom.rmq.Constants.SUFFIX_LATER;
@@ -26,34 +28,84 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private final IdGenerator idGenerator = IdGenerator.create();
 
-  private Map<String, Queue> queues = new HashMap<>();
+  private Map<String, Queue> queues = new ConcurrentHashMap<>();
   private Map<String, Thread> queueThreads = new HashMap<>();
+
+  // for batch mode
+  private Map<String, WriteBatch> batches = new ConcurrentHashMap<>();
+  private Timer timer;
+  private boolean isBatch;
 
   // ============================= constructors ============================
 
-  QueueStore(MetaStore metaStore, String id, int ttl, boolean batchMode) {
+  QueueStore(MetaStore metaStore, RMQOptions rmqOptions) {
     this.metaStore = metaStore;
     try {
-      db = TtlDB.open(options, getPath(id, NAME), ttl, false);
+      db = TtlDB.open(options, getPath(rmqOptions.getId(), NAME), rmqOptions.getTtl(), false);
+      setupBatchThread(rmqOptions);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
   }
 
-  QueueStore(MetaStore metaStore, List<String> queueNames, String id, int ttl, boolean batchMode) {
+  QueueStore(MetaStore metaStore, List<String> queueNames, RMQOptions rmqOptions) {
     this.metaStore = metaStore;
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
     }
     List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
-    List<Integer> ttlList = createTTLs(queueNames.size(), ttl);
+    List<Integer> ttlList = createTTLs(queueNames.size(), rmqOptions.getTtl());
     try {
-      db = TtlDB.open(dbOptions, getPath(id, NAME), descriptors, handles, ttlList, false);
+      db = TtlDB.open(dbOptions, getPath(rmqOptions.getId(), NAME), descriptors, handles, ttlList, false);
       initQueues(queueNames, descriptors, handles);
+      setupBatchThread(rmqOptions);
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
+  }
+
+  // ============================= batches ============================
+
+  private void setupBatchThread(RMQOptions rmqOptions) {
+    isBatch = rmqOptions.isBatchMode();
+    if (!isBatch) {
+      return;
+    }
+
+    int period = rmqOptions.getBatchPeriod();
+    timer = new Timer(false);
+    timer.scheduleAtFixedRate(new TimerTask() {
+      @Override
+      public void run() {
+        LOGGER.info("Writing batch...");
+        for (String queueName : queues.keySet()) {
+          WriteBatch writeBatch = batches.put(queueName, new WriteBatch());
+          persist(writeBatch);
+        }
+      }
+    }, period, period);
+  }
+
+  private void persist(WriteBatch batch) {
+    int size = batch.count();
+    if (0 == size) {
+      LOGGER.debug("batch size: 0, skipped.");
+      return;
+    }
+
+    try {
+      Stopwatch stopwatch = Stopwatch.createStarted();
+      db.write(writeOptions, batch);
+      stopwatch.stop();
+      LOGGER.debug("batch size: {}, {}", size, stopwatch);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
+  private WriteBatch getWriteBatch(String queueName) {
+    return batches.computeIfAbsent(queueName, name -> new WriteBatch());
   }
 
   // ============================= queue apis ============================
@@ -64,7 +116,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
 
-      queues.put(queueName, queue);
       metaStore.queueCreated(queueName);
 
       startQueue(queue);
@@ -81,14 +132,14 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   private Queue getQueue(String name) {
-    return queues.computeIfAbsent(name, f -> createQueue(name));
+    return queues.computeIfAbsent(name, this::createQueue);
   }
 
   private Queue getLaterQueue(String name) {
     String laterQueueName = name + SUFFIX_LATER;
-    Queue laterQueue = queues.computeIfAbsent(laterQueueName, f -> createQueue(laterQueueName));
-    laterQueue.addConsumers(getQueue(name).getConsumers());
-    return laterQueue;
+    return queues.computeIfAbsent(laterQueueName, queueName ->
+        createQueue(laterQueueName).addConsumers(getQueue(queueName).getConsumers())
+    );
   }
 
   void subscribe(String queueName, RMQConsumer... consumers) {
@@ -100,8 +151,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     queue.addConsumers(consumers);
 
     if (isNotLaterQueue(queueName)) {
-      Queue laterQueue = getQueue(queueName + SUFFIX_LATER);
-      laterQueue.addConsumers(consumers);
+      Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
+      if (null != laterQueue) {
+        laterQueue.addConsumers(consumers);
+      }
     }
   }
 
@@ -228,7 +281,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private void push(Queue queue, byte[] key, byte[] value) {
     try {
-      db.put(queue.getHandle(), key, value);
+      if (isBatch) {
+        getWriteBatch(queue.getName()).put(queue.getHandle(), key, value);
+      } else {
+        db.put(queue.getHandle(), writeOptions, key, value);
+      }
       queue.signalNewMessage();
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -241,7 +298,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private void delete(Queue queue, byte[] key) {
     try {
-      db.delete(queue.getHandle(), writeOptions, key);
+      if (isBatch) {
+        getWriteBatch(queue.getName()).remove(queue.getHandle(), key);
+      } else {
+        db.delete(queue.getHandle(), writeOptions, key);
+      }
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }
@@ -325,6 +386,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   @Override
   public void close() {
     LOGGER.debug("Closing QueueStore...");
+    if (null != timer) {
+      timer.cancel();
+    }
     queues.values().forEach(this::stopQueue);
     options.close();
     dbOptions.close();
