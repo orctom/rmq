@@ -1,12 +1,14 @@
 package com.orctom.rmq;
 
-import com.google.common.collect.Lists;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,22 +18,31 @@ public abstract class RockStore {
 
   private static Options options = new Options().setCreateIfMissing(true);
 
-  private static String getPath(String id) {
-//    return "/home/chenhao/workspaces-hao/pipeline/.data/roleB/" + id;
-    return ".data/dummy/" + id;
-  }
-
-  public static RocksDB read(String id) {
+  private static void read(String path) {
     try {
-      String path = getPath(id);
-      System.out.println(path);
-      return RocksDB.open(options, path);
-    } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      List<String> columnFamilies = readMeta(path + "/meta/");
+      readQueues(path + "/queues/", columnFamilies);
+    } catch (Exception e) {
+      LOGGER.error(e.getMessage(), e);
     }
   }
 
-  public static void read(String id, List<String> queueNames) {
+  private static List<String> readMeta(String path) throws RocksDBException {
+    RocksDB db = RocksDB.open(options, path);
+    RocksIterator iterator = db.newIterator();
+    List<String> columnFamilies = new ArrayList<>();
+    for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+      String key = new String(iterator.key());
+      String value = new String(iterator.value());
+      System.out.println(key + " -> " + value);
+      if (key.startsWith("queue_")) {
+        columnFamilies.add(value);
+      }
+    }
+    return columnFamilies;
+  }
+
+  private static void readQueues(String path, List<String> queueNames) {
     try {
       List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
       for (String queueName : queueNames) {
@@ -41,42 +52,16 @@ public abstract class RockStore {
       descriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
       List<ColumnFamilyHandle> handles = new ArrayList<>();
       DBOptions dbOptions = new DBOptions().setCreateIfMissing(true);
-      RocksDB db = RocksDB.open(dbOptions, getPath(id), descriptors, handles);
+      RocksDB db = RocksDB.open(dbOptions, path, descriptors, handles);
       int i = 0;
       for (ColumnFamilyHandle handle : handles) {
-        System.out.println(queueNames.get(i));
+        System.out.println(queueNames.get(i) + ":");
         iterate(db.newIterator(handle));
+        System.out.println();
         i++;
       }
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
-    }
-  }
-
-  static void ensureDataDirExist() {
-    File dataDir = new File(".", "data");
-    if (dataDir.exists()) {
-      return;
-    }
-    boolean created = dataDir.mkdirs();
-    LOGGER.trace("ensuring data dir existence, created: {}", created);
-  }
-
-  static void readSolo() {
-    try {
-      RocksDB db = read("meta");
-      RocksIterator iterator = db.newIterator();
-      iterate(iterator);
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-  }
-
-  static void readCF() {
-    try {
-      read("queues", Lists.newArrayList("inbox", "inbox_later", "ready", "ready_later", "sent"));
-    } catch (Exception e) {
-      e.printStackTrace();
     }
   }
 
@@ -89,7 +74,16 @@ public abstract class RockStore {
   }
 
   public static void main(String[] args) {
-    RockStore.readSolo();
-//    RockStore.readCF();
+    Path path = Paths.get("/home/chenhao/workspaces-hao/pipeline/.data/");
+    try {
+      Files.newDirectoryStream(path).forEach(f -> {
+        String dbPath = f.toFile().getAbsolutePath();
+        System.out.println(dbPath);
+        System.out.println("===================================");
+        RockStore.read(dbPath);
+      });
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 }

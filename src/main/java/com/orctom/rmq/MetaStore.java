@@ -1,5 +1,6 @@
 package com.orctom.rmq;
 
+import com.google.common.base.Strings;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
@@ -13,6 +14,7 @@ import java.util.List;
 
 import static com.orctom.rmq.Constants.PREFIX_QUEUE;
 import static com.orctom.rmq.Constants.SUFFIX_OFFSET;
+import static com.orctom.rmq.Constants.SUFFIX_SIZE;
 
 class MetaStore extends AbstractStore implements AutoCloseable {
 
@@ -59,6 +61,20 @@ class MetaStore extends AbstractStore implements AutoCloseable {
   void setOffset(String queueName, String offset) {
     LOGGER.trace("[{}] new offset: {}", queueName, offset);
     put(queueName + SUFFIX_OFFSET, offset);
+  }
+
+  long getSize(String queueName) {
+    String value = get(queueName + SUFFIX_SIZE);
+    if (Strings.isNullOrEmpty(value)) {
+      return 0;
+    } else {
+      long size = Long.valueOf(value);
+      return size < 0 ? 0 : size;
+    }
+  }
+
+  void setSize(String queueName, long size) {
+    put(queueName + SUFFIX_SIZE, String.valueOf(size));
   }
 
   private void put(String key, String value) {

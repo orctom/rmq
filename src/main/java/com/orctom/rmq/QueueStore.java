@@ -180,6 +180,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private void startQueue(Queue queue) {
     Thread thread = new Thread(queue);
+    thread.setName("Queue-" + queue.getName() + "@" + queue.hashCode());
     thread.start();
     queueThreads.put(queue.getName(), thread);
   }
@@ -215,7 +216,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void delete(String queueName, String id) {
-    delete(getQueue(queueName), id);
+    Queue queue = getQueue(queueName);
+    delete(queue, id);
+    queue.sizeIncreased();
   }
 
   private boolean isLaterQueue(String queueName) {
@@ -224,6 +227,19 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private boolean isNotLaterQueue(String queueName) {
     return !isLaterQueue(queueName);
+  }
+
+  long getSize(String queueName) {
+    long queueSize = queues.get(queueName).getSize();
+    if (isLaterQueue(queueName)) {
+      return queueSize;
+    }
+
+    Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
+    if (null == laterQueue) {
+      return queueSize;
+    }
+    return queueSize + laterQueue.getSize();
   }
 
   // ============================= low level apis ============================
@@ -286,6 +302,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       } else {
         db.put(queue.getHandle(), writeOptions, key, value);
       }
+      queue.sizeIncreased();
       queue.signalNewMessage();
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -342,7 +359,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
   }
 
-  void cleanDeletedMessages() {
+  void updateMeta() {
     LOGGER.trace("Cleaning deleted messages");
     for (Queue queue : queues.values()) {
       String queueName = queue.getName();
@@ -360,6 +377,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
+
+      metaStore.setSize(queue.getName(), queue.getSize());
     }
   }
 

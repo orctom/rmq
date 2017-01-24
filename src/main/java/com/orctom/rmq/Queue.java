@@ -2,6 +2,7 @@ package com.orctom.rmq;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.orctom.laputa.utils.MutableLong;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
@@ -12,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 class Queue implements Runnable, AutoCloseable {
@@ -21,12 +24,14 @@ class Queue implements Runnable, AutoCloseable {
   private String name;
   private ColumnFamilyDescriptor descriptor;
   private ColumnFamilyHandle handle;
+  private MutableLong size = new MutableLong(0L);
 
   private MetaStore metaStore;
   private QueueStore queueStore;
 
   private volatile boolean hasNoMoreMessage = true;
-  private final Object lock = new Object();
+  private final ReentrantLock lock = new ReentrantLock();
+  private final Condition noConsumerOrMessage = lock.newCondition();
 
   private List<RMQConsumer> consumers = new ArrayList<>();
   private int count = 0;
@@ -42,6 +47,8 @@ class Queue implements Runnable, AutoCloseable {
 
     this.metaStore = metaStore;
     this.queueStore = queueStore;
+
+    size.setValue(metaStore.getSize(name));
   }
 
   String getName() {
@@ -75,6 +82,18 @@ class Queue implements Runnable, AutoCloseable {
     this.consumers.removeAll(Lists.newArrayList(consumers));
   }
 
+  void sizeIncreased() {
+    size.increase();
+  }
+
+  private void sizeDecreased() {
+    size.decrease();
+  }
+
+  long getSize() {
+    return size.getValue();
+  }
+
   @Override
   public void run() {
     LOGGER.trace("[{}] started.", name);
@@ -83,12 +102,15 @@ class Queue implements Runnable, AutoCloseable {
       LOGGER.trace("[{}] loading from offset: {}", name, offset);
       try {
         if (isToWaitForConsumersAndMessages()) {
-          synchronized (lock) {
+          try {
+            lock.lock();
             if (isToWaitForConsumersAndMessages()) {
               LOGGER.trace("[{}] waiting for consumers or new messages.", name);
-              lock.wait();
+              noConsumerOrMessage.await();
               continue;
             }
+          } finally {
+            lock.unlock();
           }
         }
         LOGGER.trace("[{}] loading", name);
@@ -136,18 +158,22 @@ class Queue implements Runnable, AutoCloseable {
           }
           case LATER: {
             queueStore.pushToLater(name, message);
+            sizeDecreased();
           }
           default: {
             metaStore.setOffset(name, id);
+            sizeDecreased();
           }
         }
       } catch (Exception e) {
         queueStore.pushToLater(name, message);
+        sizeDecreased();
         LOGGER.error(e.getMessage(), e);
       }
       numberOfSentMessages++;
     }
     if (0 == numberOfSentMessages) {
+      size.setValue(0L);
       hasNoMoreMessage = true;
     }
   }
@@ -200,9 +226,12 @@ class Queue implements Runnable, AutoCloseable {
 
   private void signal() {
     hasNoMoreMessage = false;
-    synchronized (lock) {
-      lock.notify();
+    try {
+      lock.lock();
+      noConsumerOrMessage.signal();
       LOGGER.trace("[{}] new messages or consumers signal", name);
+    } finally {
+      lock.unlock();
     }
   }
 

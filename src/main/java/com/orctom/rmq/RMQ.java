@@ -1,5 +1,6 @@
 package com.orctom.rmq;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.rocksdb.RocksDB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,9 @@ public class RMQ implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RMQ.class);
 
-  private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+  private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
+      new ThreadFactoryBuilder().setNameFormat("rmq-meta-%d").build()
+  );
 
   private static final Map<String, RMQ> INSTANCES = new ConcurrentHashMap<>();
 
@@ -34,7 +37,7 @@ public class RMQ implements AutoCloseable {
       queueNames.add(new String(RocksDB.DEFAULT_COLUMN_FAMILY));
       queueStore = new QueueStore(metaStore, queueNames, options);
     }
-    startCleaner();
+    scheduleMetaUpdater();
   }
 
   public static RMQ getInstance() {
@@ -67,10 +70,14 @@ public class RMQ implements AutoCloseable {
     queueStore.unsubscribe(queueName, consumers);
   }
 
-  private void startCleaner() {
+  public long getSize(String queueName) {
+    return queueStore.getSize(queueName);
+  }
+
+  private void scheduleMetaUpdater() {
     LOGGER.debug("Starting cleaner");
     scheduler.scheduleWithFixedDelay(
-        () -> queueStore.cleanDeletedMessages(),
+        () -> queueStore.updateMeta(),
         0,
         15,
         TimeUnit.SECONDS
