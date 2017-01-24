@@ -56,7 +56,7 @@ public abstract class RockStore {
       int i = 0;
       for (ColumnFamilyHandle handle : handles) {
         System.out.println(queueNames.get(i) + ":");
-        iterate(db.newIterator(handle));
+        System.out.println("left: " + iterate(db.newIterator(handle)));
         System.out.println();
         i++;
       }
@@ -65,12 +65,15 @@ public abstract class RockStore {
     }
   }
 
-  private static void iterate(RocksIterator iterator) {
+  private static int iterate(RocksIterator iterator) {
+    int count = 0;
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       String value = new String(iterator.value());
       System.out.println(key + " -> " + value);
+      count ++;
     }
+    return count;
   }
 
   public static void main(String[] args) {
