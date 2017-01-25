@@ -216,9 +216,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void delete(String queueName, String id) {
-    Queue queue = getQueue(queueName);
-    delete(queue, id);
-    queue.sizeIncreased();
+    delete(getQueue(queueName), id);
   }
 
   private boolean isLaterQueue(String queueName) {
@@ -230,7 +228,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   long getSize(String queueName) {
-    long queueSize = queues.get(queueName).getSize();
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return 0;
+    }
+    long queueSize = queue.getSize();
     if (isLaterQueue(queueName)) {
       return queueSize;
     }
@@ -320,6 +322,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       } else {
         db.delete(queue.getHandle(), writeOptions, key);
       }
+
+      queue.sizeDecreased();
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
     }

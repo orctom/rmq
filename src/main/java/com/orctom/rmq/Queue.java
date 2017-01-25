@@ -33,7 +33,8 @@ class Queue implements Runnable, AutoCloseable {
   private final ReentrantLock lock = new ReentrantLock();
   private final Condition noConsumerOrMessage = lock.newCondition();
 
-  private List<RMQConsumer> consumers = new ArrayList<>();
+  private final ReentrantLock consumersLock = new ReentrantLock();
+  private volatile List<RMQConsumer> consumers = new ArrayList<>();
   private int count = 0;
 
   Queue(String name,
@@ -72,10 +73,15 @@ class Queue implements Runnable, AutoCloseable {
   }
 
   Queue addConsumers(List<RMQConsumer> consumers) {
-    this.consumers.addAll(consumers);
-    this.consumers = this.consumers.stream().distinct().collect(Collectors.toList());
-    signalNewConsumer();
-    return this;
+    try {
+      consumersLock.lock();
+      this.consumers.addAll(consumers);
+      this.consumers = this.consumers.stream().distinct().collect(Collectors.toList());
+      signalNewConsumer();
+      return this;
+    } finally {
+      consumersLock.unlock();
+    }
   }
 
   void removeConsumers(RMQConsumer... consumers) {
@@ -86,7 +92,7 @@ class Queue implements Runnable, AutoCloseable {
     size.increase();
   }
 
-  private void sizeDecreased() {
+  void sizeDecreased() {
     size.decrease();
   }
 
@@ -98,8 +104,7 @@ class Queue implements Runnable, AutoCloseable {
   public void run() {
     LOGGER.trace("[{}] started.", name);
     while (!Thread.currentThread().isInterrupted()) {
-      String offset = metaStore.getOffset(name);
-      LOGGER.trace("[{}] loading from offset: {}", name, offset);
+      LOGGER.trace("[{}] loading...", name);
       try {
         if (isToWaitForConsumersAndMessages()) {
           try {
@@ -113,7 +118,8 @@ class Queue implements Runnable, AutoCloseable {
             lock.unlock();
           }
         }
-        LOGGER.trace("[{}] loading", name);
+        String offset = metaStore.getOffset(name);
+        LOGGER.trace("[{}] loading from offset: {}", name, offset);
         try (RocksIterator iterator = getPositionedIterator(offset)) {
           sendMessagesToConsumer(iterator);
         }
@@ -157,18 +163,28 @@ class Queue implements Runnable, AutoCloseable {
             return;
           }
           case LATER: {
-            queueStore.pushToLater(name, message);
-            sizeDecreased();
+            LOGGER.info("Message: {} marked as LATER.", id);
+//            metaStore.setOffset(name, id);
+//            queueStore.pushToLater(name, message);
+//            sizeDecreased();
+            return;
           }
-          default: {
+          case DONE:{
             metaStore.setOffset(name, id);
             sizeDecreased();
+            return;
+          }
+          default: {
+            LOGGER.info("Message: {} marked as LATER.", id);
+            return;
           }
         }
       } catch (Exception e) {
-        queueStore.pushToLater(name, message);
-        sizeDecreased();
+        LOGGER.info("Message: {} marked as LATER.", id);
         LOGGER.error(e.getMessage(), e);
+//        metaStore.setOffset(name, id);
+//        queueStore.pushToLater(name, message);
+//        sizeDecreased();
       }
       numberOfSentMessages++;
     }
@@ -215,12 +231,14 @@ class Queue implements Runnable, AutoCloseable {
   private void signalNewConsumer() {
     if (1 == consumers.size()) {
       signal();
+      LOGGER.trace("[{}] signaled first consumer.", name);
     }
   }
 
   void signalNewMessage() {
     if (hasNoMoreMessage) {
       signal();
+      LOGGER.trace("[{}] signaled new messages.", name);
     }
   }
 
@@ -229,7 +247,6 @@ class Queue implements Runnable, AutoCloseable {
     try {
       lock.lock();
       noConsumerOrMessage.signal();
-      LOGGER.trace("[{}] new messages or consumers signal", name);
     } finally {
       lock.unlock();
     }
