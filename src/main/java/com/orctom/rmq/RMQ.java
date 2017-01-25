@@ -17,7 +17,7 @@ public class RMQ implements AutoCloseable {
   private static final Logger LOGGER = LoggerFactory.getLogger(RMQ.class);
 
   private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-      new ThreadFactoryBuilder().setNameFormat("rmq-meta-%d").build()
+      new ThreadFactoryBuilder().setNameFormat("rmq-meta@" + hashCode()).build()
   );
 
   private static final Map<String, RMQ> INSTANCES = new ConcurrentHashMap<>();

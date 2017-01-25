@@ -2,6 +2,7 @@ package com.orctom.rmq;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.orctom.laputa.utils.IdGenerator;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
@@ -9,7 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import static com.orctom.rmq.Constants.SUFFIX_LATER;
@@ -28,8 +29,11 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private final IdGenerator idGenerator = IdGenerator.create();
 
+  private ExecutorService es = Executors.newCachedThreadPool(
+      new ThreadFactoryBuilder().setNameFormat("rmq-queue@" + hashCode()).build()
+  );
   private Map<String, Queue> queues = new ConcurrentHashMap<>();
-  private Map<String, Thread> queueThreads = new HashMap<>();
+  private Map<String, Future<?>> queueFutures = new HashMap<>();
 
   // for batch mode
   private Map<String, WriteBatch> batches = new ConcurrentHashMap<>();
@@ -115,10 +119,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
       ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
-
-      metaStore.queueCreated(queueName);
-
       startQueue(queue);
+      metaStore.queueCreated(queueName);
       return queue;
     } catch (RocksDBException e) {
       throw new RMQException(e.getMessage(), e);
@@ -179,15 +181,15 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   private void startQueue(Queue queue) {
-    Thread thread = new Thread(queue);
-    thread.setName("Queue-" + queue.getName() + "@" + queue.hashCode());
-    thread.start();
-    queueThreads.put(queue.getName(), thread);
+    queueFutures.put(queue.getName(), es.submit(queue));
+    try {
+      TimeUnit.MILLISECONDS.sleep(50);
+    } catch (InterruptedException ignored) {
+    }
   }
 
   private void stopQueue(Queue queue) {
-    Thread thread = queueThreads.get(queue.getName());
-    thread.interrupt();
+    queueFutures.get(queue.getName()).cancel(true);
   }
 
   void push(String queueName, String message) {
@@ -205,13 +207,13 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private void push(String queueName, String message, boolean isLater) {
     Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
     String id = String.valueOf(idGenerator.generate());
-    LOGGER.trace("[{}] new message, {}: {}", queueName, id, message);
+    LOGGER.trace("[{}] pushed, {}: {}", queueName, id, message);
     push(queue, id, message);
   }
 
   private void push(String queueName, Message message, boolean isLater) {
     Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
-    LOGGER.trace("[{}] new message, {}", queueName, message);
+    LOGGER.trace("[{}] pushed, {}", queueName, message);
     push(queue, message);
   }
 
@@ -412,7 +414,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     if (null != timer) {
       timer.cancel();
     }
-    queues.values().forEach(this::stopQueue);
+    shutdownExecutorService();
     options.close();
     dbOptions.close();
     if (null != db) {
@@ -420,5 +422,15 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
     metaStore.close();
     LOGGER.debug("Closed QueueStore.");
+  }
+
+  private void shutdownExecutorService() {
+    es.shutdown();
+    try {
+      es.awaitTermination(1, TimeUnit.SECONDS);
+    } catch (InterruptedException ignored) {
+    }
+    es.shutdownNow();
+    queues.clear();
   }
 }
