@@ -155,7 +155,7 @@ class Queue implements Runnable, AutoCloseable {
       try {
         Ack ack = sendToConsumer(message);
         switch (ack) {
-          case HALT: {
+          case WAIT: {
             try {
               TimeUnit.MILLISECONDS.sleep(500);
             } catch (InterruptedException ignored) {
@@ -163,28 +163,23 @@ class Queue implements Runnable, AutoCloseable {
             return;
           }
           case LATER: {
-            LOGGER.info("Message: {} marked as LATER.", id);
-//            metaStore.setOffset(name, id);
-//            queueStore.pushToLater(name, message);
-//            sizeDecreased();
+            LOGGER.trace("Message: {} marked as LATER.", id);
             return;
           }
           case DONE:{
+            LOGGER.trace("Message: {} marked as DONE.", id);
             metaStore.setOffset(name, id);
             sizeDecreased();
             return;
           }
           default: {
-            LOGGER.info("Message: {} marked as LATER.", id);
+            LOGGER.trace("Message: {} marked as LATER.", id);
             return;
           }
         }
       } catch (Exception e) {
         LOGGER.info("Message: {} marked as LATER.", id);
         LOGGER.error(e.getMessage(), e);
-//        metaStore.setOffset(name, id);
-//        queueStore.pushToLater(name, message);
-//        sizeDecreased();
       }
       numberOfSentMessages++;
     }
@@ -196,7 +191,7 @@ class Queue implements Runnable, AutoCloseable {
 
   private Ack sendToConsumer(Message message) {
     if (hasNoConsumers()) {
-      return Ack.HALT;
+      return Ack.WAIT;
     }
 
     try {
@@ -206,7 +201,7 @@ class Queue implements Runnable, AutoCloseable {
       }
       return consumer.onMessage(message);
     } catch (IndexOutOfBoundsException ignored) {
-      return Ack.HALT;
+      return Ack.WAIT;
     }
   }
 
