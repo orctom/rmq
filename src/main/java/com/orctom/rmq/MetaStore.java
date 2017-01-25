@@ -68,8 +68,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     if (Strings.isNullOrEmpty(value)) {
       return 0;
     } else {
-      long size = Long.valueOf(value);
-      return size < 0 ? 0 : size;
+      return Long.valueOf(value);
     }
   }
 
