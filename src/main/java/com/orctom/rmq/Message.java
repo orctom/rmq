@@ -1,15 +1,21 @@
 package com.orctom.rmq;
 
 import java.io.Serializable;
+import java.util.Base64;
 
 public class Message implements Serializable {
 
-  private String id;
-  private byte[] data;
+  protected String id;
+  protected byte[] data;
 
   public Message(String id, byte[] data) {
     this.id = id;
     this.data = data;
+  }
+
+  public Message(Message message) {
+    this.id = message.getId();
+    this.data = message.getData();
   }
 
   public String getId() {
@@ -22,7 +28,7 @@ public class Message implements Serializable {
 
   @Override
   public String toString() {
-    return id + ": " + new String(data);
+    return id + ", " + Base64.getEncoder().encodeToString(data);
   }
 
   @Override
