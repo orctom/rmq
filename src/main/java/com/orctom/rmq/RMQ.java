@@ -2,6 +2,7 @@ package com.orctom.rmq;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +26,7 @@ public class RMQ implements AutoCloseable {
   private RMQOptions options;
   private QueueStore queueStore;
 
-  private RMQ(RMQOptions options) {
+  protected RMQ(RMQOptions options) {
     this.options = options;
 
     MetaStore metaStore = new MetaStore(options.getId());
@@ -45,7 +46,11 @@ public class RMQ implements AutoCloseable {
   }
 
   public static RMQ getInstance(RMQOptions options) {
-    return INSTANCES.computeIfAbsent(options.getId(), id -> new RMQ(options));
+    return getInstance(options, new RMQ(options));
+  }
+
+  protected static RMQ getInstance(RMQOptions options, RMQ rmq) {
+    return INSTANCES.computeIfAbsent(options.getId(), id -> rmq);
   }
 
   public void send(String queueName, String message) {
@@ -72,6 +77,10 @@ public class RMQ implements AutoCloseable {
 
   public long getSize(String queueName) {
     return queueStore.getSize(queueName);
+  }
+
+  protected RocksIterator iter(String queueName) {
+    return queueStore.iter(queueName);
   }
 
   private void scheduleMetaUpdater() {

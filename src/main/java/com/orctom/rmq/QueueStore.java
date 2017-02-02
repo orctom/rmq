@@ -246,6 +246,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     return queueSize + laterQueue.getSize();
   }
 
+  RocksIterator iter(String queueName) {
+    return iter(queues.get(queueName));
+  }
+
   // ============================= low level apis ============================
 
   RocksIterator iter(Queue queue) {
