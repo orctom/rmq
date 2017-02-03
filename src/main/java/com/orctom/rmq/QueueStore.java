@@ -20,6 +20,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private static final String NAME = "queues";
 
   private final MetaStore metaStore;
+  private final int ttl;
   private final TtlDB db;
   private final Options options = new Options().setCreateIfMissing(true);
   private final DBOptions dbOptions = new DBOptions();
@@ -41,6 +42,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   // ============================= constructors ============================
 
   QueueStore(MetaStore metaStore, RMQOptions rmqOptions) {
+    this.ttl = rmqOptions.getTtl();
     this.metaStore = metaStore;
     try {
       db = TtlDB.open(options, getPath(rmqOptions.getId(), NAME), rmqOptions.getTtl(), false);
@@ -51,6 +53,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   QueueStore(MetaStore metaStore, List<String> queueNames, RMQOptions rmqOptions) {
+    this.ttl = rmqOptions.getTtl();
     this.metaStore = metaStore;
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
@@ -115,7 +118,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private Queue createQueue(String queueName) {
     try {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
-      ColumnFamilyHandle handle = db.createColumnFamily(descriptor);
+      ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(descriptor, ttl);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
       startQueue(queue);
       metaStore.queueCreated(queueName);
@@ -134,7 +137,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private Queue getQueue(String name) {
     return queues.computeIfAbsent(name, this::createQueue);
   }
-  
+
   void subscribe(String queueName, RMQConsumer... consumers) {
     if (null == consumers) {
       return;
@@ -186,6 +189,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     delete(getQueue(queueName), id);
   }
 
+  void flush(String queueName) {
+    flush(getQueue(queueName));
+  }
+
   long getSize(String queueName) {
     Queue queue = queues.get(queueName);
     if (null == queue) {
@@ -195,7 +202,12 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   RocksIterator iter(String queueName) {
-    return iter(queues.get(queueName));
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return null;
+    }
+
+    return iter(queue);
   }
 
   // ============================= low level apis ============================
@@ -305,6 +317,20 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     push(targetQueue, key, value);
   }
 
+  private void flush(Queue queue) {
+    if (null == queue) {
+      return;
+    }
+
+    try {
+      db.dropColumnFamily(queue.getHandle());
+      ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(queue.getDescriptor(), ttl);
+      queue.setHandle(handle);
+    } catch (RocksDBException e) {
+      throw new RMQException(e.getMessage(), e);
+    }
+  }
+
   private void dropColumnFamily(ColumnFamilyHandle handle) {
     if (null == handle) {
       return;
@@ -320,33 +346,35 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   void updateMeta() {
     LOGGER.trace("Cleaning deleted messages");
     for (Queue queue : queues.values()) {
-      String queueName = queue.getName();
-      String offset = metaStore.getOffset(queueName);
-      try {
-        if (Strings.isNullOrEmpty(offset)) {
-          continue;
-        }
-        Long start = System.currentTimeMillis();
-        clean(queue, queueName, Long.valueOf(offset));
-        long end = System.currentTimeMillis();
-        LOGGER.trace("[{}] cleaning took: {} ms", queueName, (end - start));
-      } catch (NumberFormatException e) {
-        LOGGER.error("[{}] cleaning wrong offset: {}", queueName, offset);
-      } catch (Exception e) {
-        LOGGER.error(e.getMessage(), e);
-      }
-
+      cleanOffsets(queue);
       metaStore.setSize(queue.getName(), queue.getSize());
     }
   }
 
-  private void clean(Queue queue, String queueName, long offset) {
+  private void cleanOffsets(Queue queue) {
+    String queueName = queue.getName();
+    String offset = metaStore.getOffset(queueName);
+    if (Strings.isNullOrEmpty(offset)) {
+      return;
+    }
+
+    try {
+      Long start = System.currentTimeMillis();
+      clean(queue, queueName, offset);
+      long end = System.currentTimeMillis();
+      LOGGER.trace("[{}] cleaning took: {} ms", queueName, (end - start));
+    } catch (Exception e) {
+      LOGGER.error(e.getMessage(), e);
+    }
+  }
+
+  private void clean(Queue queue, String queueName, String offset) {
     LOGGER.trace("[{}] cleaning messages before offset: {} ", queueName, offset);
     RocksIterator iterator = db.newIterator(queue.getHandle());
     WriteBatch batch = new WriteBatch();
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-      byte[] key = iterator.key();
-      if (Long.valueOf(new String(key)) >= offset) {
+      String key = new String(iterator.key());
+      if (isKeyGreaterEqualThanOffset(key, offset)) {
         break;
       }
       batch.remove(queue.getHandle(), iterator.key());
@@ -357,6 +385,16 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       }
     } catch (RocksDBException e) {
       LOGGER.error(e.getMessage(), e);
+    }
+  }
+
+  private boolean isKeyGreaterEqualThanOffset(String key, String offset) {
+    int len1 = key.length();
+    int len2 = offset.length();
+    if (len1 == len2) {
+      return key.compareTo(offset) >= 0;
+    } else {
+      return len1 > len2;
     }
   }
 

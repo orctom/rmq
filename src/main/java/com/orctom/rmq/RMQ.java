@@ -69,6 +69,10 @@ public class RMQ implements AutoCloseable {
     queueStore.delete(queueName, id);
   }
 
+  public void flush(String queueName) {
+    queueStore.flush(queueName);
+  }
+
   public void subscribe(String queueName, RMQConsumer... consumers) {
     LOGGER.debug("[{}] subscribed by {}.", queueName, consumers);
     queueStore.subscribe(queueName, consumers);

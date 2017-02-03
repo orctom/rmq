@@ -64,6 +64,10 @@ class Queue implements Runnable, AutoCloseable {
     return handle;
   }
 
+  public void setHandle(ColumnFamilyHandle handle) {
+    this.handle = handle;
+  }
+
   List<RMQConsumer> getConsumers() {
     return consumers;
   }
