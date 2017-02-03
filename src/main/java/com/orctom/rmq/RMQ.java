@@ -53,11 +53,15 @@ public class RMQ implements AutoCloseable {
     return INSTANCES.computeIfAbsent(options.getId(), id -> rmq);
   }
 
-  public void send(String queueName, String message) {
+  public void push(String queueName, String message) {
     queueStore.push(queueName, message);
   }
 
-  public void send(String queueName, Message message) {
+  public void push(String queueName, String id, String message) {
+    queueStore.push(queueName, id, message);
+  }
+
+  public void push(String queueName, Message message) {
     queueStore.push(queueName, message);
   }
 

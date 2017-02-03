@@ -22,7 +22,7 @@ public class RMQTest {
       MutableInt counter = metrics.meter("sent");
       for (int i = 0; i < 1_0; i++) {
         String msg = String.valueOf(System.currentTimeMillis());
-        rmq.send(topic, msg);
+        rmq.push(topic, msg);
         counter.increase();
       }
 

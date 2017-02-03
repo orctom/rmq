@@ -13,8 +13,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
-import static com.orctom.rmq.Constants.SUFFIX_LATER;
-
 class QueueStore extends AbstractStore implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(QueueStore.class);
@@ -136,14 +134,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private Queue getQueue(String name) {
     return queues.computeIfAbsent(name, this::createQueue);
   }
-
-  private Queue getLaterQueue(String name) {
-    String laterQueueName = name + SUFFIX_LATER;
-    return queues.computeIfAbsent(laterQueueName, queueName ->
-        createQueue(laterQueueName).addConsumers(getQueue(queueName).getConsumers())
-    );
-  }
-
+  
   void subscribe(String queueName, RMQConsumer... consumers) {
     if (null == consumers) {
       return;
@@ -151,13 +142,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
     Queue queue = getQueue(queueName);
     queue.addConsumers(consumers);
-
-    if (isNotLaterQueue(queueName)) {
-      Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
-      if (null != laterQueue) {
-        laterQueue.addConsumers(consumers);
-      }
-    }
   }
 
   void unsubscribe(String queueName, RMQConsumer... consumers) {
@@ -167,17 +151,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
     Queue queue = getQueue(queueName);
     queue.removeConsumers(consumers);
-
-    unsubscribeFromLaterQueue(queueName, consumers);
-  }
-
-  private void unsubscribeFromLaterQueue(String queueName, RMQConsumer[] consumers) {
-    if (isNotLaterQueue(queueName)) {
-      Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
-      if (null != laterQueue) {
-        laterQueue.removeConsumers(consumers);
-      }
-    }
   }
 
   private void startQueue(Queue queue) {
@@ -193,26 +166,18 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void push(String queueName, String message) {
-    push(queueName, message, false);
-  }
-
-  void push(String queueName, Message message) {
-    push(queueName, message, false);
-  }
-
-  void pushToLater(String queueName, Message message) {
-    push(queueName, message, true);
-  }
-
-  private void push(String queueName, String message, boolean isLater) {
-    Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
     String id = String.valueOf(idGenerator.generate());
+    push(queueName, id, message);
+  }
+
+  void push(String queueName, String id, String message) {
+    Queue queue = getQueue(queueName);
     LOGGER.trace("[{}] pushed, {}: {}", queueName, id, message);
     push(queue, id, message);
   }
 
-  private void push(String queueName, Message message, boolean isLater) {
-    Queue queue = isLater ? getLaterQueue(queueName) : getQueue(queueName);
+  void push(String queueName, Message message) {
+    Queue queue = getQueue(queueName);
     LOGGER.trace("[{}] pushed, {}", queueName, message);
     push(queue, message);
   }
@@ -221,29 +186,12 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     delete(getQueue(queueName), id);
   }
 
-  private boolean isLaterQueue(String queueName) {
-    return queueName.endsWith(SUFFIX_LATER);
-  }
-
-  private boolean isNotLaterQueue(String queueName) {
-    return !isLaterQueue(queueName);
-  }
-
   long getSize(String queueName) {
     Queue queue = queues.get(queueName);
     if (null == queue) {
       return 0;
     }
-    long queueSize = queue.getSize();
-    if (isLaterQueue(queueName)) {
-      return queueSize;
-    }
-
-    Queue laterQueue = queues.get(queueName + SUFFIX_LATER);
-    if (null == laterQueue) {
-      return queueSize;
-    }
-    return queueSize + laterQueue.getSize();
+    return queue.getSize();
   }
 
   RocksIterator iter(String queueName) {
