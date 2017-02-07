@@ -1,7 +1,6 @@
 package com.orctom.rmq;
 
 import java.io.Serializable;
-import java.util.Arrays;
 
 public class Message implements Serializable {
 
