@@ -190,7 +190,20 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void flush(String queueName) {
-    flush(getQueue(queueName));
+    Queue queue = getQueue(queueName);
+    if (null == queue) {
+      return;
+    }
+    flush(queue);
+    queue.setSize(0);
+  }
+
+  void setSize(String queueName, long size) {
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return;
+    }
+    queue.setSize(size);
   }
 
   long getSize(String queueName) {
@@ -199,6 +212,14 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       return 0;
     }
     return queue.getSize();
+  }
+
+  void decreaseSize(String queueName, long delta) {
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return;
+    }
+    queue.sizeDecreased();
   }
 
   RocksIterator iter(String queueName) {
@@ -318,10 +339,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   private void flush(Queue queue) {
-    if (null == queue) {
-      return;
-    }
-
     try {
       db.dropColumnFamily(queue.getHandle());
       ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(queue.getDescriptor(), ttl);
@@ -348,7 +365,10 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     for (Queue queue : queues.values()) {
       try {
         long size = cleanOffsets(queue);
-        metaStore.setSize(queue.getName(), size);
+        if (size != queue.getSize()) {
+          metaStore.setSize(queue.getName(), size);
+          queue.setSize(size);
+        }
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }

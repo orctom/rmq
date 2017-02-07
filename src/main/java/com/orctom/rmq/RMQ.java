@@ -91,6 +91,18 @@ public class RMQ implements AutoCloseable {
     return queueStore.getSize(queueName);
   }
 
+  protected void setSize(String queueName, long size) {
+    queueStore.setSize(queueName, size);
+  }
+
+  protected void decreaseSize(String queueName) {
+    decreaseSize(queueName, 1);
+  }
+
+  protected void decreaseSize(String queueName, long delta) {
+    queueStore.decreaseSize(queueName, delta);
+  }
+
   protected RocksIterator iter(String queueName) {
     return queueStore.iter(queueName);
   }

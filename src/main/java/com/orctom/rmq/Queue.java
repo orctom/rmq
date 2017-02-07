@@ -100,6 +100,10 @@ class Queue implements Runnable, AutoCloseable {
     size.decrease();
   }
 
+  void setSize(long size) {
+    this.size.setValue(size);
+  }
+
   long getSize() {
     return size.getValue();
   }
