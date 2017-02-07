@@ -26,6 +26,10 @@ public class RMQ implements AutoCloseable {
   private RMQOptions options;
   private QueueStore queueStore;
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   protected RMQ(RMQOptions options) {
     this.options = options;
 

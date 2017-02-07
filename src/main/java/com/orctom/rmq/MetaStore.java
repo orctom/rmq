@@ -29,7 +29,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     try {
       db = RocksDB.open(options, getPath(id, NAME));
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -84,7 +84,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     try {
       db.put(key, value);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -100,7 +100,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     try {
       return db.get(key);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -112,7 +112,7 @@ class MetaStore extends AbstractStore implements AutoCloseable {
     try {
       db.delete(key);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 

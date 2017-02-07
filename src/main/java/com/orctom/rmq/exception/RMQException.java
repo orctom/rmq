@@ -1,12 +1,10 @@
 package com.orctom.rmq.exception;
 
+import org.rocksdb.RocksDBException;
+
 public class RMQException extends FastException {
 
-  public RMQException(String message) {
-    super(message);
-  }
-
-  public RMQException(String message, Throwable cause) {
-    super(message, cause);
+  public RMQException(RocksDBException e) {
+    super(e.getMessage() + " (" + e.getStatus().getCodeString() + ")", e);
   }
 }

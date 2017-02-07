@@ -48,7 +48,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       db = TtlDB.open(options, getPath(rmqOptions.getId(), NAME), rmqOptions.getTtl(), false);
       setupBatchThread(rmqOptions);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -66,7 +66,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       initQueues(queueNames, descriptors, handles);
       setupBatchThread(rmqOptions);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -105,7 +105,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       stopwatch.stop();
       LOGGER.debug("batch size: {}, {}", size, stopwatch);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -124,7 +124,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       metaStore.queueCreated(queueName);
       return queue;
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -273,7 +273,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       queue.sizeIncreased();
       queue.signalNewMessage();
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -291,7 +291,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
       queue.sizeDecreased();
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -303,7 +303,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     try {
       return db.get(queue.getHandle(), key);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -327,7 +327,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(queue.getDescriptor(), ttl);
       queue.setHandle(handle);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -339,7 +339,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     try {
       db.dropColumnFamily(handle);
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -384,7 +384,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
         db.write(writeOptions, batch);
       }
     } catch (RocksDBException e) {
-      LOGGER.error(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 

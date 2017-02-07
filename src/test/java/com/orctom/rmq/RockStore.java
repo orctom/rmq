@@ -34,7 +34,7 @@ public abstract class RockStore {
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       String value = new String(iterator.value());
-      System.out.println(key + " -> " + value);
+      LOGGER.trace("{} -> {}", key, value);
       if (key.startsWith("queue_")) {
         columnFamilies.add(value);
       }
@@ -61,7 +61,7 @@ public abstract class RockStore {
         i++;
       }
     } catch (RocksDBException e) {
-      throw new RMQException(e.getMessage(), e);
+      throw new RMQException(e);
     }
   }
 
@@ -70,23 +70,9 @@ public abstract class RockStore {
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       String value = new String(iterator.value());
-      System.out.println(key + " -> " + value);
+      LOGGER.trace("{} -> {}", key, value);
       count ++;
     }
     return count;
-  }
-
-  public static void main(String[] args) {
-    Path path = Paths.get("/home/chenhao/workspaces-hao/pipeline/.data/");
-    try {
-      Files.newDirectoryStream(path).forEach(f -> {
-        String dbPath = f.toFile().getAbsolutePath();
-        System.out.println(dbPath);
-        System.out.println("===================================");
-        RockStore.read(dbPath);
-      });
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
   }
 }
