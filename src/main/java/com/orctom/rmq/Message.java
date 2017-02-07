@@ -1,7 +1,7 @@
 package com.orctom.rmq;
 
 import java.io.Serializable;
-import java.util.Base64;
+import java.util.Arrays;
 
 public class Message implements Serializable {
 
@@ -28,7 +28,13 @@ public class Message implements Serializable {
 
   @Override
   public String toString() {
-    return id + ", " + Base64.getEncoder().encodeToString(data);
+    if (null == data) {
+      return id + ", null";
+    } else if (data.length < 200) {
+      return id + ", " + new String(data);
+    } else {
+      return id + ", " + new String(data, 0, 200) + "...";
+    }
   }
 
   @Override
