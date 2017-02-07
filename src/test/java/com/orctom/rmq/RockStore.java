@@ -1,5 +1,6 @@
 package com.orctom.rmq;
 
+import com.google.common.base.Strings;
 import com.orctom.rmq.exception.RMQException;
 import org.rocksdb.*;
 import org.slf4j.Logger;
@@ -34,7 +35,7 @@ public abstract class RockStore {
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       String value = new String(iterator.value());
-      LOGGER.trace("{} -> {}", key, value);
+      LOGGER.info("{} -> {}", key, value);
       if (key.startsWith("queue_")) {
         columnFamilies.add(value);
       }
@@ -55,9 +56,9 @@ public abstract class RockStore {
       RocksDB db = RocksDB.open(dbOptions, path, descriptors, handles);
       int i = 0;
       for (ColumnFamilyHandle handle : handles) {
-        System.out.println(queueNames.get(i) + ":");
-        System.out.println("left: " + iterate(db.newIterator(handle)));
-        System.out.println();
+        LOGGER.info("{}: ", queueNames.get(i));
+        LOGGER.info("left: {}", iterate(db.newIterator(handle)));
+        LOGGER.info("");
         i++;
       }
     } catch (RocksDBException e) {
@@ -70,9 +71,29 @@ public abstract class RockStore {
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       String value = new String(iterator.value());
-      LOGGER.trace("{} -> {}", key, value);
+      LOGGER.info("{} -> {}", key, value);
       count ++;
     }
     return count;
+  }
+
+
+  public static void main(String[] args) {
+    String folder = args[0];
+    if (Strings.isNullOrEmpty(folder)) {
+      System.out.println("Expecting one arg of abstract folder path of the .data directory");
+      return;
+    }
+    Path path = Paths.get(folder);
+    try {
+      Files.newDirectoryStream(path).forEach(f -> {
+        String dbPath = f.toFile().getAbsolutePath();
+        LOGGER.info(dbPath);
+        LOGGER.info("===================================");
+        RockStore.read(dbPath);
+      });
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 }

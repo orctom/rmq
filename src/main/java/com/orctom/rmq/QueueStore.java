@@ -346,38 +346,41 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   void updateMeta() {
     LOGGER.trace("Cleaning deleted messages");
     for (Queue queue : queues.values()) {
-      cleanOffsets(queue);
-      metaStore.setSize(queue.getName(), queue.getSize());
+      try {
+        long size = cleanOffsets(queue);
+        metaStore.setSize(queue.getName(), size);
+      } catch (Exception e) {
+        LOGGER.error(e.getMessage(), e);
+      }
     }
   }
 
-  private void cleanOffsets(Queue queue) {
+  private long cleanOffsets(Queue queue) {
     String queueName = queue.getName();
     String offset = metaStore.getOffset(queueName);
     if (Strings.isNullOrEmpty(offset)) {
-      return;
+      return queue.getSize();
     }
 
-    try {
-      Long start = System.currentTimeMillis();
-      clean(queue, queueName, offset);
-      long end = System.currentTimeMillis();
-      LOGGER.trace("[{}] cleaning took: {} ms", queueName, (end - start));
-    } catch (Exception e) {
-      LOGGER.error(e.getMessage(), e);
-    }
+    Long start = System.currentTimeMillis();
+    long size = clean(queue, queueName, offset);
+    long end = System.currentTimeMillis();
+    LOGGER.trace("[{}] cleaning took: {} ms", queueName, (end - start));
+    return size;
   }
 
-  private void clean(Queue queue, String queueName, String offset) {
+  private long clean(Queue queue, String queueName, String offset) {
     LOGGER.trace("[{}] cleaning messages before offset: {} ", queueName, offset);
     RocksIterator iterator = db.newIterator(queue.getHandle());
+    long size = 0;
     WriteBatch batch = new WriteBatch();
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
       if (isKeyGreaterEqualThanOffset(key, offset)) {
-        break;
+        size++;
+      } else {
+        batch.remove(queue.getHandle(), iterator.key());
       }
-      batch.remove(queue.getHandle(), iterator.key());
     }
     try {
       if (batch.count() > 0) {
@@ -386,6 +389,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     } catch (RocksDBException e) {
       throw new RMQException(e);
     }
+
+    return size;
   }
 
   private boolean isKeyGreaterEqualThanOffset(String key, String offset) {
