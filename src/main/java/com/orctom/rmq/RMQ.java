@@ -74,6 +74,7 @@ public class RMQ implements AutoCloseable {
   }
 
   public void flush(String queueName) {
+    LOGGER.info("Flushing queue: {}", queueName);
     queueStore.flush(queueName);
   }
 

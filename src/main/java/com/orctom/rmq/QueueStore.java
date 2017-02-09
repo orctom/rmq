@@ -129,8 +129,13 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void deleteQueue(String queueName) {
-    dropColumnFamily(queues.get(queueName).getHandle());
-    queues.remove(queueName);
+    Queue queue = queues.remove(queueName);
+    dropColumnFamily(queue.getHandle());
+    try {
+      queue.close();
+    } catch (Exception e) {
+      LOGGER.error(e.getMessage());
+    }
     metaStore.queueDeleted(queueName);
   }
 
@@ -195,7 +200,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       return;
     }
     flush(queue);
-    queue.setSize(0);
   }
 
   void setSize(String queueName, long size) {
@@ -294,6 +298,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       queue.sizeIncreased();
       queue.signalNewMessage();
     } catch (RocksDBException e) {
+      LOGGER.error("queue: {}, key: {}, value: {}", queue.getName(), new String(key), new String(value));
       throw new RMQException(e);
     }
   }
@@ -340,9 +345,13 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private void flush(Queue queue) {
     try {
-      db.dropColumnFamily(queue.getHandle());
-      ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(queue.getDescriptor(), ttl);
-      queue.setHandle(handle);
+      WriteBatch batch = new WriteBatch();
+      RocksIterator iterator = iter(queue);
+      queue.setSize(0);
+      for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+        batch.remove(queue.getHandle(), iterator.key());
+      }
+      db.write(writeOptions, batch);
     } catch (RocksDBException e) {
       throw new RMQException(e);
     }

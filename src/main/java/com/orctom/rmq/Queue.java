@@ -262,6 +262,5 @@ class Queue implements Runnable, AutoCloseable {
   @Override
   public void close() throws Exception {
     handle.close();
-    queueStore.close();
   }
 }
