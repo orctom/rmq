@@ -73,9 +73,9 @@ public class RMQ implements AutoCloseable {
     queueStore.delete(queueName, id);
   }
 
-  public void flush(String queueName) {
+  public void flush(String queueName, String upperBound) {
     LOGGER.info("Flushing queue: {}", queueName);
-    queueStore.flush(queueName);
+    queueStore.flush(queueName, upperBound);
   }
 
   public void subscribe(String queueName, RMQConsumer... consumers) {
@@ -90,18 +90,6 @@ public class RMQ implements AutoCloseable {
 
   public long getSize(String queueName) {
     return queueStore.getSize(queueName);
-  }
-
-  protected void setSize(String queueName, long size) {
-    queueStore.setSize(queueName, size);
-  }
-
-  protected void decreaseSize(String queueName) {
-    decreaseSize(queueName, 1);
-  }
-
-  protected void decreaseSize(String queueName, long delta) {
-    queueStore.decreaseSize(queueName, delta);
   }
 
   protected RocksIterator iter(String queueName) {

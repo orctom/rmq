@@ -1,6 +1,5 @@
 package com.orctom.rmq;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.orctom.laputa.utils.MutableLong;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -10,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
@@ -24,7 +22,6 @@ class Queue implements Runnable, AutoCloseable {
   private String name;
   private ColumnFamilyDescriptor descriptor;
   private ColumnFamilyHandle handle;
-  private MutableLong size = new MutableLong(0L);
 
   private MetaStore metaStore;
   private QueueStore queueStore;
@@ -48,8 +45,6 @@ class Queue implements Runnable, AutoCloseable {
 
     this.metaStore = metaStore;
     this.queueStore = queueStore;
-
-    size.setValue(metaStore.getSize(name));
   }
 
   String getName() {
@@ -76,7 +71,7 @@ class Queue implements Runnable, AutoCloseable {
     return addConsumers(Lists.newArrayList(consumers));
   }
 
-  Queue addConsumers(List<RMQConsumer> consumers) {
+  private Queue addConsumers(List<RMQConsumer> consumers) {
     try {
       consumersLock.lock();
       this.consumers.addAll(consumers);
@@ -90,22 +85,6 @@ class Queue implements Runnable, AutoCloseable {
 
   void removeConsumers(RMQConsumer... consumers) {
     this.consumers.removeAll(Lists.newArrayList(consumers));
-  }
-
-  void sizeIncreased() {
-    size.increase();
-  }
-
-  void sizeDecreased() {
-    size.decrease();
-  }
-
-  void setSize(long size) {
-    this.size.setValue(size);
-  }
-
-  long getSize() {
-    return size.getValue();
   }
 
   @Override
@@ -126,9 +105,9 @@ class Queue implements Runnable, AutoCloseable {
             lock.unlock();
           }
         }
-        String offset = metaStore.getOffset(name);
-        LOGGER.trace("[{}] loading from offset: {}", name, offset);
-        try (RocksIterator iterator = getPositionedIterator(offset)) {
+
+        LOGGER.trace("[{}] sending", name);
+        try (RocksIterator iterator = queueStore.positionedIterator(this)) {
           sendMessagesToConsumer(iterator);
         }
       } catch (InterruptedException ignored) {
@@ -138,20 +117,6 @@ class Queue implements Runnable, AutoCloseable {
       }
     }
     LOGGER.warn("[{}] Stopped.", name);
-  }
-
-  private RocksIterator getPositionedIterator(String offset) {
-    RocksIterator iterator = queueStore.iter(this);
-    if (Strings.isNullOrEmpty(offset)) {
-      iterator.seekToFirst();
-    } else {
-      byte[] offsetBytes = offset.getBytes();
-      iterator.seek(offsetBytes);
-      if (Arrays.equals(offsetBytes, iterator.key())) {
-        iterator.next();
-      }
-    }
-    return iterator;
   }
 
   private void sendMessagesToConsumer(RocksIterator iterator) {
@@ -177,7 +142,6 @@ class Queue implements Runnable, AutoCloseable {
           case DONE:{
             LOGGER.trace("Message: {} marked as DONE.", id);
             metaStore.setOffset(name, id);
-            sizeDecreased();
             return;
           }
           default: {
@@ -192,7 +156,6 @@ class Queue implements Runnable, AutoCloseable {
       numberOfSentMessages++;
     }
     if (0 == numberOfSentMessages) {
-      size.setValue(0L);
       hasNoMoreMessage = true;
     }
   }

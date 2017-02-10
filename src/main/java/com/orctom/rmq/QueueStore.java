@@ -18,6 +18,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   private static final Logger LOGGER = LoggerFactory.getLogger(QueueStore.class);
 
   private static final String NAME = "queues";
+  private static final String ROCKSDB_ESTIMATE_NUM_KEYS = "rocksdb.estimate-num-keys";
 
   private final MetaStore metaStore;
   private final int ttl;
@@ -191,39 +192,33 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   }
 
   void delete(String queueName, String id) {
-    delete(getQueue(queueName), id);
-  }
-
-  void flush(String queueName) {
-    Queue queue = getQueue(queueName);
-    if (null == queue) {
-      return;
-    }
-    flush(queue);
-  }
-
-  void setSize(String queueName, long size) {
     Queue queue = queues.get(queueName);
     if (null == queue) {
       return;
     }
-    queue.setSize(size);
+    delete(queue, id);
   }
 
-  long getSize(String queueName) {
-    Queue queue = queues.get(queueName);
-    if (null == queue) {
-      return 0;
-    }
-    return queue.getSize();
-  }
-
-  void decreaseSize(String queueName, long delta) {
+  void flush(String queueName, String upperBound) {
     Queue queue = queues.get(queueName);
     if (null == queue) {
       return;
     }
-    queue.sizeDecreased();
+    flush(queue, upperBound);
+  }
+
+  Long getSize(String queueName) {
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return 0L;
+    }
+
+    try {
+      long size = db.getLongProperty(queue.getHandle(), ROCKSDB_ESTIMATE_NUM_KEYS);
+      return size <= 1 ? 0: size;
+    } catch (RocksDBException e) {
+      return null;
+    }
   }
 
   RocksIterator iter(String queueName) {
@@ -232,12 +227,30 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       return null;
     }
 
-    return iter(queue);
+    return positionedIterator(queue);
+  }
+
+  RocksIterator positionedIterator(Queue queue) {
+    RocksIterator iterator = iter(queue);
+    if (null == iterator) {
+      return null;
+    }
+    String offset = metaStore.getOffset(queue.getName());
+    if (Strings.isNullOrEmpty(offset)) {
+      iterator.seekToFirst();
+    } else {
+      byte[] offsetBytes = offset.getBytes();
+      iterator.seek(offsetBytes);
+      if (Arrays.equals(offsetBytes, iterator.key())) {
+        iterator.next();
+      }
+    }
+    return iterator;
   }
 
   // ============================= low level apis ============================
 
-  RocksIterator iter(Queue queue) {
+  private RocksIterator iter(Queue queue) {
     return db.newIterator(queue.getHandle());
   }
 
@@ -295,7 +308,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       } else {
         db.put(queue.getHandle(), writeOptions, key, value);
       }
-      queue.sizeIncreased();
       queue.signalNewMessage();
     } catch (RocksDBException e) {
       LOGGER.error("queue: {}, key: {}, value: {}", queue.getName(), new String(key), new String(value));
@@ -314,8 +326,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       } else {
         db.delete(queue.getHandle(), writeOptions, key);
       }
-
-      queue.sizeDecreased();
     } catch (RocksDBException e) {
       throw new RMQException(e);
     }
@@ -343,13 +353,16 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     push(targetQueue, key, value);
   }
 
-  private void flush(Queue queue) {
+  private void flush(Queue queue, String upperBound) {
     try {
       WriteBatch batch = new WriteBatch();
       RocksIterator iterator = iter(queue);
-      queue.setSize(0);
       for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-        batch.remove(queue.getHandle(), iterator.key());
+        byte[] key = iterator.key();
+        if (isGreaterEqualThan(new String(key), upperBound)) {
+          break;
+        }
+        batch.remove(queue.getHandle(), key);
       }
       db.write(writeOptions, batch);
     } catch (RocksDBException e) {
@@ -373,44 +386,39 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     LOGGER.trace("Cleaning deleted messages");
     for (Queue queue : queues.values()) {
       try {
-        long size = cleanOffsets(queue);
-        if (size != queue.getSize()) {
-          metaStore.setSize(queue.getName(), size);
-          queue.setSize(size);
-        }
+        cleanOffsets(queue);
       } catch (Exception e) {
         LOGGER.error(e.getMessage(), e);
       }
     }
   }
 
-  private long cleanOffsets(Queue queue) {
+  private void cleanOffsets(Queue queue) {
     String queueName = queue.getName();
     String offset = metaStore.getOffset(queueName);
     if (Strings.isNullOrEmpty(offset)) {
-      return queue.getSize();
+      return;
     }
-
     Long start = System.currentTimeMillis();
-    long size = clean(queue, queueName, offset);
+    clean(queue, queueName, offset);
     long end = System.currentTimeMillis();
-    LOGGER.trace("[{}] cleaning took: {} ms", queueName, (end - start));
-    return size;
+    LOGGER.debug("[{}] cleaned took: {} ms", queueName, (end - start));
   }
 
-  private long clean(Queue queue, String queueName, String offset) {
+  private void clean(Queue queue, String queueName, String offset) {
     LOGGER.trace("[{}] cleaning messages before offset: {} ", queueName, offset);
     RocksIterator iterator = db.newIterator(queue.getHandle());
     long size = 0;
     WriteBatch batch = new WriteBatch();
     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
       String key = new String(iterator.key());
-      if (isKeyGreaterEqualThanOffset(key, offset)) {
-        size++;
-      } else {
-        batch.remove(queue.getHandle(), iterator.key());
+      if (isGreaterEqualThan(key, offset)) {
+        continue;
       }
+
+      batch.remove(queue.getHandle(), iterator.key());
     }
+
     try {
       if (batch.count() > 0) {
         db.write(writeOptions, batch);
@@ -418,11 +426,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     } catch (RocksDBException e) {
       throw new RMQException(e);
     }
-
-    return size;
   }
 
-  private boolean isKeyGreaterEqualThanOffset(String key, String offset) {
+  private boolean isGreaterEqualThan(String key, String offset) {
     int len1 = key.length();
     int len2 = offset.length();
     if (len1 == len2) {
