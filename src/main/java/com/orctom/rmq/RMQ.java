@@ -17,9 +17,7 @@ public class RMQ implements AutoCloseable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RMQ.class);
 
-  private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-      new ThreadFactoryBuilder().setNameFormat("rmq-meta@" + hashCode()).build()
-  );
+  private final ScheduledExecutorService scheduler;
 
   private static final Map<String, RMQ> INSTANCES = new ConcurrentHashMap<>();
 
@@ -32,6 +30,10 @@ public class RMQ implements AutoCloseable {
 
   protected RMQ(RMQOptions options) {
     this.options = options;
+
+    scheduler = Executors.newSingleThreadScheduledExecutor(
+        new ThreadFactoryBuilder().setNameFormat("rmq-meta-" + options.getId() + "-%d").build()
+    );
 
     MetaStore metaStore = new MetaStore(options.getId());
     List<String> queueNames = metaStore.getAllQueues();

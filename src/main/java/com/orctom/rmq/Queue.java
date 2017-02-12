@@ -1,7 +1,6 @@
 package com.orctom.rmq;
 
 import com.google.common.collect.Lists;
-import com.orctom.laputa.utils.MutableLong;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
@@ -26,13 +25,15 @@ class Queue implements Runnable, AutoCloseable {
   private MetaStore metaStore;
   private QueueStore queueStore;
 
+  private boolean started;
+
   private volatile boolean hasNoMoreMessage = true;
   private final ReentrantLock lock = new ReentrantLock();
   private final Condition noConsumerOrMessage = lock.newCondition();
 
   private final ReentrantLock consumersLock = new ReentrantLock();
   private volatile List<RMQConsumer> consumers = new ArrayList<>();
-  private int count = 0;
+  private int nextConsumerCounter = 0;
 
   Queue(String name,
         ColumnFamilyDescriptor descriptor,
@@ -61,6 +62,14 @@ class Queue implements Runnable, AutoCloseable {
 
   public void setHandle(ColumnFamilyHandle handle) {
     this.handle = handle;
+  }
+
+  synchronized boolean isStarted() {
+    return started;
+  }
+
+  synchronized void setStarted() {
+    this.started = true;
   }
 
   List<RMQConsumer> getConsumers() {
@@ -187,7 +196,7 @@ class Queue implements Runnable, AutoCloseable {
       return 0;
     }
 
-    return Math.abs(count++) % size;
+    return Math.abs(nextConsumerCounter++) % size;
   }
 
   private boolean hasNoConsumers() {

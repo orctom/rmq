@@ -29,11 +29,8 @@ class QueueStore extends AbstractStore implements AutoCloseable {
 
   private final IdGenerator idGenerator = IdGenerator.create();
 
-  private ExecutorService es = Executors.newCachedThreadPool(
-      new ThreadFactoryBuilder().setNameFormat("rmq-queue@" + hashCode()).build()
-  );
+  private ExecutorService es;
   private Map<String, Queue> queues = new ConcurrentHashMap<>();
-  private Map<String, Future<?>> queueFutures = new HashMap<>();
 
   // for batch mode
   private Map<String, WriteBatch> batches = new ConcurrentHashMap<>();
@@ -45,6 +42,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
   QueueStore(MetaStore metaStore, RMQOptions rmqOptions) {
     this.ttl = rmqOptions.getTtl();
     this.metaStore = metaStore;
+
+    initExecutorService(rmqOptions.getId());
+
     try {
       db = TtlDB.open(options, getPath(rmqOptions.getId(), NAME), rmqOptions.getTtl(), false);
       setupBatchThread(rmqOptions);
@@ -59,6 +59,9 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     if (null == queueNames) {
       throw new IllegalArgumentException("QueueNames should not be null");
     }
+
+    initExecutorService(rmqOptions.getId());
+
     List<ColumnFamilyDescriptor> descriptors = createColumnFamilyDescriptors(queueNames);
     List<ColumnFamilyHandle> handles = new ArrayList<>();
     List<Integer> ttlList = createTTLs(queueNames.size(), rmqOptions.getTtl());
@@ -69,6 +72,12 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     } catch (RocksDBException e) {
       throw new RMQException(e);
     }
+  }
+
+  private void initExecutorService(String id) {
+    es = Executors.newCachedThreadPool(
+        new ThreadFactoryBuilder().setNameFormat("rmq-queue-" + id + "-%d").build()
+    );
   }
 
   // ============================= batches ============================
@@ -121,7 +130,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyDescriptor descriptor = createColumnFamilyDescriptor(queueName);
       ColumnFamilyHandle handle = db.createColumnFamilyWithTtl(descriptor, ttl);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
-      startQueue(queue);
       metaStore.queueCreated(queueName);
       return queue;
     } catch (RocksDBException e) {
@@ -150,6 +158,7 @@ class QueueStore extends AbstractStore implements AutoCloseable {
     }
 
     Queue queue = getQueue(queueName);
+    startQueue(queue);
     queue.addConsumers(consumers);
   }
 
@@ -158,20 +167,24 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       return;
     }
 
-    Queue queue = getQueue(queueName);
+    Queue queue = queues.get(queueName);
+    if (null == queue) {
+      return;
+    }
     queue.removeConsumers(consumers);
   }
 
   private void startQueue(Queue queue) {
-    queueFutures.put(queue.getName(), es.submit(queue));
+    if (queue.isStarted()) {
+      return;
+    }
+    queue.setStarted();
+    es.submit(queue);
+    LOGGER.info("[{}} started.", queue.getName());
     try {
       TimeUnit.MILLISECONDS.sleep(50);
     } catch (InterruptedException ignored) {
     }
-  }
-
-  private void stopQueue(Queue queue) {
-    queueFutures.get(queue.getName()).cancel(true);
   }
 
   void push(String queueName, String message) {
@@ -289,7 +302,6 @@ class QueueStore extends AbstractStore implements AutoCloseable {
       ColumnFamilyHandle handle = handles.get(i);
       Queue queue = new Queue(queueName, descriptor, handle, metaStore, this);
       queues.put(queueName, queue);
-      startQueue(queue);
     }
   }
 
