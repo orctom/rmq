@@ -1,6 +1,6 @@
 package com.orctom.rmq;
 
-import com.orctom.laputa.utils.MutableInt;
+import com.orctom.laputa.utils.SimpleMeter;
 import com.orctom.laputa.utils.SimpleMetrics;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -19,11 +19,11 @@ public class RMQTest {
     try (RMQ rmq = RMQ.getInstance(options)) {
       rmq.subscribe(topic, new DummyConsumer());
       SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
-      MutableInt counter = metrics.meter("sent");
+      SimpleMeter meter = metrics.meter("sent");
       for (int i = 0; i < 1_0; i++) {
         String msg = String.valueOf(System.currentTimeMillis());
         rmq.push(topic, msg);
-        counter.increase();
+        meter.mark();
       }
 
       sleepFor(10, TimeUnit.SECONDS);
