@@ -7,7 +7,7 @@
     <version>1.4</version>
   </parent>
   <artifactId>rmq</artifactId>
-  <version>1.0</version>
+  <version>1.1-SNAPSHOT</version>
 
   <description>RocksDB based Embedded Persistent Queue</description>
   <url>https://github.com/orctom/rmq/</url>
@@ -27,7 +27,7 @@
     <url>https://github.com/orctom/rmq/</url>
     <connection>scm:git:git@github.com:orctom/rmq.git</connection>
     <developerConnection>scm:git:git@github.com:orctom/rmq.git</developerConnection>
-    <tag>1.0</tag>
+    <tag>HEAD</tag>
   </scm>
 
   <dependencies>
