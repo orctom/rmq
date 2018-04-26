@@ -6,41 +6,47 @@
   <parent>
     <groupId>com.orctom</groupId>
     <artifactId>basepom</artifactId>
-    <version>1.2</version>
+    <version>1.4</version>
   </parent>
   <artifactId>rmq</artifactId>
   <version>1.0-SNAPSHOT</version>
 
-  <properties>
-    <java.version>1.8</java.version>
-  </properties>
+  <description>RocksDB based Embedded Persistent Queue</description>
+  <url>https://github.com/orctom/rmq/</url>
+
+  <issueManagement>
+    <url>https://github.com/orctom/rmq/issues</url>
+    <system>GitHub</system>
+  </issueManagement>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <url>https://github.com/orctom/rmq/</url>
+    <connection>scm:git:git@github.com:orctom/rmq.git</connection>
+    <developerConnection>scm:git:git@github.com:orctom/rmq.git</developerConnection>
+    <tag>HEAD</tag>
+  </scm>
 
   <dependencies>
     <dependency>
       <groupId>org.rocksdb</groupId>
       <artifactId>rocksdbjni</artifactId>
-      <version>5.1.2</version>
+      <version>5.11.3</version>
     </dependency>
     <dependency>
       <groupId>com.orctom.laputa</groupId>
       <artifactId>laputa-utils</artifactId>
-      <version>1.0-SNAPSHOT</version>
-    </dependency>
-    <dependency>
-      <groupId>joda-time</groupId>
-      <artifactId>joda-time</artifactId>
-      <version>2.9.4</version>
+      <version>0.3</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>19.0</version>
-    </dependency>
-
-    <dependency>
-      <groupId>com.google.code.findbugs</groupId>
-      <artifactId>jsr305</artifactId>
-      <version>3.0.1</version>
+      <version>24.1-jre</version>
     </dependency>
 
     <dependency>

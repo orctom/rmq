@@ -10,7 +10,7 @@
     <appender-ref ref="stdout"/>
   </logger>
 
-  <logger name="com.orctom.rmq.RMQTest" level="trace" additivity="false">
+  <logger name="com.orctom.rmq.RMQIT" level="trace" additivity="false">
     <appender-ref ref="stdout"/>
   </logger>
 

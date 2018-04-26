@@ -8,9 +8,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
 
-public class RMQTest {
+public class RMQIT {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(RMQTest.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(RMQIT.class);
 
   @Test
   public void test() {
@@ -20,16 +20,16 @@ public class RMQTest {
       rmq.subscribe(topic, new DummyConsumer());
       SimpleMetrics metrics = SimpleMetrics.create(LOGGER, 5, TimeUnit.SECONDS);
       SimpleMeter meter = metrics.meter("sent");
-      for (int i = 0; i < 1_0; i++) {
+      for (int i = 0; i < 500_000; i++) {
         String msg = String.valueOf(System.currentTimeMillis());
         rmq.push(topic, msg);
         meter.mark();
       }
 
-      sleepFor(10, TimeUnit.SECONDS);
+      sleepFor(20, TimeUnit.SECONDS);
     }
     System.out.println("..............");
-    sleepFor(5, TimeUnit.SECONDS);
+    sleepFor(20, TimeUnit.SECONDS);
     System.out.println("terminate.");
   }
 
