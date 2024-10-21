@@ -1,0 +1,16 @@
+.git/
+.idea/
+.vscode/
+node_modules/
+dist-ssr/
+*.pid
+.DS_Store
+nohup.out
+/result*
+*.rdb
+dummy/
+dummy*
+data/
+dbs/
+build/
+mlruns/
