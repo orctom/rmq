@@ -16,4 +16,6 @@ dummy/*
 
 data/*
 .vscode/settings.json
+
+/internal/queue/msg/
 /rmq
