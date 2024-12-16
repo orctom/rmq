@@ -7,6 +7,10 @@ package queue
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,8 +18,10 @@ import (
 	"orctom.com/rmq/internal/utils"
 )
 
+// =========================== store ===========================
+
 type Store struct {
-	Folder      string
+	Queue       string
 	Priority    Priority
 	meta        *utils.Mmap
 	data        *utils.Mmap
@@ -26,39 +32,66 @@ type Store struct {
 	sync.Mutex
 }
 
-func NewStore(folder string, startID ID, priority Priority) (*Store, error) {
-	pathMeta := fmt.Sprintf("%s/%s-%d.meta", folder, startID, priority)
-	pathData := fmt.Sprintf("%s/%s-%d.data", folder, startID, priority)
-	log.Debug().Msgf("meta path: %s", pathMeta)
-	log.Debug().Msgf("data path: %s", pathData)
-	if utils.IsNotExists(pathMeta) {
-		utils.TouchFile(pathMeta)
+func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
+	metaPath := fmt.Sprintf("~/.rmq/queue/%s/%d-%s.meta", queue, priority, startID)
+	dataPath := fmt.Sprintf("~/.rmq/queue/%s/%d-%s.data", queue, priority, startID)
+	log.Debug().Msgf("meta path: %s", metaPath)
+	log.Debug().Msgf("data path: %s", dataPath)
+
+	return newStore(queue, priority, startID, metaPath, dataPath)
+}
+
+func FindCurrentStore(queue string, priority Priority) (*Store, error) {
+	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
+	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
+	if err != nil {
+		return nil, err
 	}
-	if utils.IsNotExists(pathData) {
-		utils.TouchFile(pathData)
+	if len(files) == 0 {
+		metaPath := fmt.Sprintf("~/.rmq/queue/%s/%d-%s.meta", queue, priority, ID(0))
+		dataPath := fmt.Sprintf("~/.rmq/queue/%s/%d-%s.data", queue, priority, ID(0))
+		fmt.Printf("create meta: %s\n", metaPath)
+		fmt.Printf("create data: %s\n", dataPath)
+		return newStore(queue, priority, 0, metaPath, dataPath)
+	}
+
+	sort.Strings(files)
+	metaPath := files[len(files)-1]
+	dataPath := strings.Replace(metaPath, ".meta", ".data", -1)
+	return newStore(queue, priority, 0, metaPath, dataPath)
+}
+
+func newStore(queue string, priority Priority, startID ID, metaPath string, dataPath string) (*Store, error) {
+	metaPath = utils.ExpandHome(metaPath)
+	dataPath = utils.ExpandHome(dataPath)
+	if utils.IsNotExists(metaPath) {
+		utils.TouchFile(metaPath)
+	}
+	if utils.IsNotExists(dataPath) {
+		utils.TouchFile(dataPath)
 	}
 
 	var id ID = startID
 	var readOffset int64 = 0
-	meta, err := utils.NewMmap(pathMeta)
+	meta, err := utils.NewMmap(metaPath)
 	if err != nil {
-		log.Err(err).Send()
+		return nil, err
 	} else {
 		id = findCurrentID(meta)
 		readOffset = findReadOffset(meta)
 	}
 
 	var writeOffset int64 = 0
-	data, err := utils.NewMmap(pathData)
+	data, err := utils.NewMmap(dataPath)
 	if err != nil {
-		log.Err(err).Send()
+		return nil, err
 	} else {
 		writeOffset = data.Size()
 	}
 
 	fmt.Printf("[store] read offset %d, write offset %d, id: %d\n", readOffset, writeOffset, id)
 	return &Store{
-		Folder:      folder,
+		Queue:       queue,
 		Priority:    priority,
 		meta:        meta,
 		data:        data,
@@ -157,28 +190,56 @@ func (s *Store) Get() (*Message, error) {
 	return msg, nil
 }
 
-// =========================== mamager ===========================
+// =========================== stores ===========================
 
-type diskStoreManager struct {
-	stores map[string]*Store // filename -> store
+type Stores struct {
+	PRIORITY_NORMAL *Store
+	PRIORITY_HIGH   *Store
+	PRIORITY_URGENT *Store
 }
 
-func DiskStoreManager() *diskStoreManager {
+func NewStores(queue string) *Stores {
+	storeNorm, err := FindCurrentStore(queue, PRIORITY_NORMAL)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load norm store for queue: %s", queue)
+	}
+	storeHigh, err := FindCurrentStore(queue, PRIORITY_HIGH)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load high store for queue: %s", queue)
+	}
+	storeUrgent, err := FindCurrentStore(queue, PRIORITY_URGENT)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load urgent store for queue: %s", queue)
+	}
+	return &Stores{
+		PRIORITY_NORMAL: storeNorm,
+		PRIORITY_HIGH:   storeHigh,
+		PRIORITY_URGENT: storeUrgent,
+	}
+}
+
+// =========================== mamager ===========================
+
+type storeManager struct {
+	stores map[string]*Stores
+}
+
+func StoreManager() *storeManager {
 	var once sync.Once
-	var instance *diskStoreManager
+	var instance *storeManager
 	once.Do(func() {
-		instance = &diskStoreManager{
-			stores: make(map[string]*Store),
+		instance = &storeManager{
+			stores: make(map[string]*Stores),
 		}
 	})
 	return instance
 }
 
-func (sm *diskStoreManager) GetStore(name string) *Store {
-	store, exists := sm.stores[name]
+func (sm *storeManager) GetStores(name string) *Stores {
+	stores, exists := sm.stores[name]
 	if !exists {
 		// store = NewStore(name)
 		// sm.stores[name] = store
 	}
-	return store
+	return stores
 }
