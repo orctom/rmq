@@ -76,16 +76,16 @@ func testMmap() {
 }
 
 func testID() {
-	store, err := queue.NewStore("dummy", queue.ID(20), queue.PRIORITY_NORMAL)
+	store, err := queue.FindCurrentStore("dummy", queue.PRIORITY_NORMAL)
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
 
-	// store.Put(queue.NewMessageDataFromStr("1 do"))
-	// store.Put(queue.NewMessageDataFromStr("2 rerere"))
-	// store.Put(queue.NewMessageDataFromStr("3 miiiiiiiiiiii"))
-	// store.Put(queue.NewMessageDataFromStr("4 farrrrrrrrr"))
-	// store.Put(queue.NewMessageDataFromStr("5 so"))
+	store.Put(queue.NewMessageDataFromStr("1 do"))
+	store.Put(queue.NewMessageDataFromStr("2 rerere"))
+	store.Put(queue.NewMessageDataFromStr("3 miiiiiiiiiiii"))
+	store.Put(queue.NewMessageDataFromStr("4 farrrrrrrrr"))
+	store.Put(queue.NewMessageDataFromStr("5 so"))
 
 	store.Preview()
 
@@ -97,4 +97,7 @@ func testID() {
 	fmt.Printf("[%s]\n", string(msg.Data))
 
 	store.Preview()
+
+	stores := queue.NewStores("dummy")
+	fmt.Println(stores)
 }
