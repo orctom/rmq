@@ -7,14 +7,10 @@ import (
 	"time"
 )
 
-type ID uint64
+type ID int64
 
 func (id ID) String() string {
 	return fmt.Sprintf("%0*d", 20, id)
-}
-
-func (id ID) Next() ID {
-	return id + 1
 }
 
 // --------------------------------- message id ---------------------------------
@@ -31,7 +27,7 @@ func NewMessageMeta(id ID, offset int64, length int64) *MessageMeta {
 		ID:     id,
 		Offset: offset,
 		Length: length,
-		Status: STATUS_READY,
+		Status: STATUS_QUEUED,
 	}
 }
 

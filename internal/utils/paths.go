@@ -10,7 +10,7 @@ import (
 
 func TouchFile(name string) error {
 	os.MkdirAll(filepath.Dir(name), 0744)
-	file, err := os.OpenFile(name, os.O_RDONLY|os.O_CREATE, 0744)
+	file, err := os.OpenFile(name, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}

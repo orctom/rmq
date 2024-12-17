@@ -12,10 +12,15 @@ var (
 )
 
 const (
-	ONE_MINUTE  = int64(60)
-	BUFFER_SIZE = 10_000
+	ONE_MINUTE          = int64(60)
+	BUFFER_SIZE_10K     = 10_000
+	BUFFER_SIZE_1M      = 1_000_000
+	BUFFER_SIZE_DEFAULT = BUFFER_SIZE_10K
 
 	MESSAGE_META_SIZE = 25
+
+	SIZE_500M = 1 << 29
+	SIZE_1G   = 1 << 30
 )
 
 type Priority uint8
@@ -42,16 +47,22 @@ func (p Priority) String() string {
 type Status uint8
 
 const (
-	STATUS_READY Status = iota
+	STATUS_QUEUED Status = iota
+	STATUS_PULLED
 	STATUS_SENT
+	STATUS_ACKED
 )
 
 func (s Status) String() string {
 	switch s {
-	case STATUS_READY:
-		return "ready"
+	case STATUS_QUEUED:
+		return "queued"
+	case STATUS_PULLED:
+		return "pulled"
 	case STATUS_SENT:
 		return "sent"
+	case STATUS_ACKED:
+		return "acked"
 	default:
 		return "unknown"
 	}

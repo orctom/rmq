@@ -7,7 +7,7 @@ type buffer struct {
 }
 
 func NewBuffer() *buffer {
-	return NewBufferOfSize(BUFFER_SIZE)
+	return NewBufferOfSize(BUFFER_SIZE_DEFAULT)
 }
 
 func NewBufferOfSize(size int) *buffer {

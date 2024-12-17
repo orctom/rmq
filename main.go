@@ -76,28 +76,27 @@ func testMmap() {
 }
 
 func testID() {
-	store, err := queue.FindCurrentStore("dummy", queue.PRIORITY_NORMAL)
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
-
-	store.Put(queue.NewMessageDataFromStr("1 do"))
-	store.Put(queue.NewMessageDataFromStr("2 rerere"))
-	store.Put(queue.NewMessageDataFromStr("3 miiiiiiiiiiii"))
-	store.Put(queue.NewMessageDataFromStr("4 farrrrrrrrr"))
-	store.Put(queue.NewMessageDataFromStr("5 so"))
-
-	store.Preview()
-
-	msg, err := store.Get()
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
-	fmt.Printf("[%s]\n", msg)
-	fmt.Printf("[%s]\n", string(msg.Data))
-
-	store.Preview()
-
 	stores := queue.NewStores("dummy")
-	fmt.Println(stores)
+	stores.Put(queue.NewMessageDataFromStr("1 a"), queue.PRIORITY_NORMAL)
+	stores.Put(queue.NewMessageDataFromStr("2 bb"), queue.PRIORITY_HIGH)
+	stores.Put(queue.NewMessageDataFromStr("3 ccc"), queue.PRIORITY_URGENT)
+	stores.Put(queue.NewMessageDataFromStr("4 dddd"), queue.PRIORITY_URGENT)
+	stores.Put(queue.NewMessageDataFromStr("5 eeeee"), queue.PRIORITY_HIGH)
+
+	stores.Debug()
+	println("-------------------------------------------------------------------------")
+	for i := 0; i < 10; i++ {
+		msg, err := stores.Get()
+		if err != nil {
+			log.Debug().Err(err).Send()
+		}
+		if msg == nil {
+			println("no more messages")
+			break
+		}
+		fmt.Printf("%d > [%s]\n", i, msg)
+	}
+
+	println("-------------------------------------------------------------------------")
+	stores.Debug()
 }
