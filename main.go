@@ -4,8 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/exp/rand"
 
 	"orctom.com/rmq/internal/queue"
 	"orctom.com/rmq/internal/ui"
@@ -76,27 +78,29 @@ func testMmap() {
 }
 
 func testID() {
-	stores := queue.NewStores("dummy")
-	stores.Put(queue.NewMessageDataFromStr("1 a"), queue.PRIORITY_NORMAL)
-	stores.Put(queue.NewMessageDataFromStr("2 bb"), queue.PRIORITY_HIGH)
-	stores.Put(queue.NewMessageDataFromStr("3 ccc"), queue.PRIORITY_URGENT)
-	stores.Put(queue.NewMessageDataFromStr("4 dddd"), queue.PRIORITY_URGENT)
-	stores.Put(queue.NewMessageDataFromStr("5 eeeee"), queue.PRIORITY_HIGH)
+	q := queue.NewQueue("dummy")
 
-	stores.Debug()
-	println("-------------------------------------------------------------------------")
-	for i := 0; i < 10; i++ {
-		msg, err := stores.Get()
-		if err != nil {
-			log.Debug().Err(err).Send()
+	go func() {
+		for i := 0; i < 10; i++ {
+			priority := queue.Priority(rand.Intn(3))
+			q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] hello world", i)), priority)
 		}
-		if msg == nil {
-			println("no more messages")
-			break
-		}
-		fmt.Printf("%d > [%s]\n", i, msg)
-	}
+		time.Sleep(10 * time.Second)
+		priority := queue.Priority(rand.Intn(3))
+		q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] ======= done =======", 100)), priority)
+	}()
 
-	println("-------------------------------------------------------------------------")
-	stores.Debug()
+	go func() {
+		for {
+			msg := q.Get()
+			if msg == nil {
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			fmt.Println(msg)
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	time.Sleep(time.Second * 30)
 }

@@ -42,17 +42,17 @@ type Store struct {
 	sync.Mutex
 }
 
-type storeManager struct {
+type StoreManager struct {
 	stores map[string]*Store
 }
 
-func StoreManager() *storeManager {
-	return &storeManager{
+func NewStoreManager() *StoreManager {
+	return &StoreManager{
 		stores: make(map[string]*Store),
 	}
 }
 
-func (sm *storeManager) GetStore(queue string, priority Priority, startID ID) (*Store, error) {
+func (sm *StoreManager) GetStore(queue string, priority Priority, startID ID) (*Store, error) {
 	key := Key(queue, priority, startID)
 	if store, exists := sm.stores[key]; exists {
 		store.Ref()
@@ -67,7 +67,7 @@ func (sm *storeManager) GetStore(queue string, priority Priority, startID ID) (*
 	return store, nil
 }
 
-func (sm *storeManager) UnrefStore(queue string, priority Priority, startID ID) {
+func (sm *StoreManager) UnrefStore(queue string, priority Priority, startID ID) {
 	key := Key(queue, priority, startID)
 	if store, exists := sm.stores[key]; exists {
 		if store.Unref() {
@@ -250,13 +250,13 @@ func (s *Store) UpdateStatus(id ID, status Status) error {
 // =========================== stores ===========================
 
 type Stores struct {
-	sm     *storeManager
+	sm     *StoreManager
 	reads  map[Priority]*Store
 	writes map[Priority]*Store
 }
 
 func NewStores(queue string) *Stores {
-	sm := StoreManager()
+	sm := NewStoreManager()
 	normRead, err := FindReadStore(sm, queue, PRIORITY_NORMAL)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to load norm read store for queue: %s", queue)
@@ -296,7 +296,7 @@ func NewStores(queue string) *Stores {
 	}
 }
 
-func FindReadStore(sm *storeManager, queue string, priority Priority) (*Store, error) {
+func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
 	dir := os.DirFS(QueuePath(queue))
 	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
 	if err != nil {
@@ -326,7 +326,7 @@ func FindReadStore(sm *storeManager, queue string, priority Priority) (*Store, e
 	return sm.GetStore(queue, priority, startID)
 }
 
-func FindWriteStore(sm *storeManager, queue string, priority Priority) (*Store, error) {
+func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
 	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
 	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
 	if err != nil {

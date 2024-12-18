@@ -57,7 +57,7 @@ func (md MessageData) Size() int64 {
 	return int64(len(md))
 }
 
-func NewMessageDataFromStr(msg string) MessageData {
+func MessageDataFromStr(msg string) MessageData {
 	return []byte(msg)
 }
 
@@ -69,49 +69,49 @@ type Message struct {
 	Data     MessageData
 }
 
-// --------------------------------- message on flight ---------------------------------
-
-type SentMessage struct {
-	mid    *MessageMeta
-	offset int64
-	time   int64
+func (m *Message) String() string {
+	return fmt.Sprintf("Message{ID: %d, Priority: %d, Data: %s}", m.ID, m.Priority, string(m.Data))
 }
 
-type sentMessages struct {
+// --------------------------------- sent messages ---------------------------------
+
+type SentMessage struct {
+	msg  *Message
+	time int64
+}
+
+type SentMessages struct {
 	sent map[ID]*SentMessage
 }
 
-type MessageTimeoutHandler func(msg *MessageMeta)
-
-func NewSentMessages(ttl int64, handler MessageTimeoutHandler) *sentMessages {
-	sm := &sentMessages{
+func NewSentMessages(ttl int64, timeoutChan chan *Message) *SentMessages {
+	sm := &SentMessages{
 		sent: make(map[ID]*SentMessage),
 	}
-	sm.ttlChecker(ttl, handler)
-	return sm
-}
-
-func (sm *sentMessages) ttlChecker(ttl int64, handler MessageTimeoutHandler) {
 	go func() {
 		for now := range time.Tick(time.Second * 30) {
 			for k, v := range sm.sent {
 				if now.Unix()-v.time >= ttl {
 					delete(sm.sent, k)
-					handler(v.mid)
+					timeoutChan <- v.msg
 				}
 			}
 		}
 	}()
+	return sm
 }
 
-func (sm *sentMessages) Sent(mid *MessageMeta, offset int64) {
-	sm.sent[mid.ID] = &SentMessage{
-		mid:    mid,
-		offset: offset,
-		time:   time.Now().Unix(),
+func (sm *SentMessages) Size() int {
+	return len(sm.sent)
+}
+
+func (sm *SentMessages) Sent(msg *Message) {
+	sm.sent[msg.ID] = &SentMessage{
+		msg:  msg,
+		time: time.Now().Unix(),
 	}
 }
 
-func (sm *sentMessages) Ack(id ID) {
+func (sm *SentMessages) Ack(id ID) {
 	delete(sm.sent, id)
 }
