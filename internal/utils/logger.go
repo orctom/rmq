@@ -14,6 +14,7 @@ import (
 )
 
 func init() {
+	zerolog.TimeFieldFormat = conf.DATETIME_FMT_ZONE
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	var writer io.Writer
 	if conf.Config.Debug {
@@ -21,7 +22,6 @@ func init() {
 		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: conf.DATETIME_FMT_ZONE}
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-		zerolog.TimeFieldFormat = conf.DATETIME_FMT_ZONE
 		cwd, _ := os.Getwd()
 		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 			file = strings.TrimPrefix(file, cwd)
