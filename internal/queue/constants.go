@@ -17,8 +17,8 @@ const (
 	BUFFER_SIZE_1M      = 1_000_000
 	BUFFER_SIZE_DEFAULT = BUFFER_SIZE_10K
 
-	TTL_1_MINUTE   = int64(60 * 60)
-	TTL_2_MINUTES  = int64(60 * 60 * 2)
+	TTL_1_MINUTE  = int64(60 * 60)
+	TTL_2_MINUTES = int64(60 * 60 * 2)
 
 	MESSAGE_META_SIZE = 25
 
@@ -54,6 +54,7 @@ const (
 	STATUS_PULLED
 	STATUS_SENT
 	STATUS_ACKED
+	STATUS_UNKONWN = 255
 )
 
 func (s Status) String() string {
@@ -66,6 +67,8 @@ func (s Status) String() string {
 		return "sent"
 	case STATUS_ACKED:
 		return "acked"
+	case STATUS_UNKONWN:
+		return "unknown"
 	default:
 		return "unknown"
 	}

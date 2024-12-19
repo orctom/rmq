@@ -7,8 +7,8 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog/log"
 	"orctom.com/rmq/internal/utils"
@@ -37,9 +37,9 @@ type Store struct {
 	readOffset  int64
 	writeOffset int64
 	id          ID
-	lastTick    time.Time
 	references  int
 	sync.Mutex
+	Cond *sync.Cond
 }
 
 type StoreManager struct {
@@ -107,7 +107,7 @@ func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
 	}
 
 	key := Key(queue, priority, startID)
-	log.Debug().Str("key", key).Int64("read", readOffset).Int64("write", writeOffset).Msg("new store")
+	log.Debug().Str("key", key).Int64("r", readOffset).Int64("w", writeOffset).Msg("[store]")
 	return &Store{
 		Queue:       queue,
 		Priority:    priority,
@@ -117,7 +117,7 @@ func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
 		readOffset:  readOffset,
 		writeOffset: writeOffset,
 		id:          id,
-		lastTick:    time.Now(),
+		Cond:        sync.NewCond(&sync.Mutex{}),
 	}, nil
 }
 
@@ -135,18 +135,41 @@ func (s *Store) Key() string {
 	return Key(s.Queue, s.Priority, s.StartID)
 }
 
-func (s *Store) Debug() {
-	fmt.Printf("--- [%s] ---\n", s.Key())
-	var offset int64 = 0
+func (s *Store) String() string {
+	var items = make([]string, 0)
+	items = append(items, fmt.Sprintf("  [%s] meta: %d, data: %d", s.Key(), s.meta.Size(), s.data.Size()))
+
+	var status Status = STATUS_UNKONWN
+	var last, lastAdded *MessageMeta = nil, nil
+	var counter = utils.NewCounter()
+
+	var offset int64
 	for offset = 0; offset < s.meta.Size(); offset += MESSAGE_META_SIZE {
 		buffer := make([]byte, MESSAGE_META_SIZE)
 		s.meta.ReadAt(buffer, offset)
 		meta, _ := DecodeMessageMeta(buffer)
-		fmt.Printf("  [%d] offset: %d, len: %d, status: %s\n", meta.ID, meta.Offset, meta.Length, meta.Status)
+		if meta.Status != status {
+			if status != STATUS_UNKONWN {
+				items = append(items, "      ...")
+			}
+			items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", meta.ID, meta.Offset, meta.Length, meta.Status))
+			lastAdded = meta
+		}
+		status = meta.Status
+		last = meta
+		counter.Count(meta.Status)
 	}
+	if last != lastAdded {
+		items = append(items, "      ...")
+		items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", last.ID, last.Offset, last.Length, last.Status))
+	}
+	items = append(items, fmt.Sprintf("    [counts] %s", counter.String()))
+	return strings.Join(items, "\n")
 }
 
 func (s *Store) IsEmpty() bool {
+	s.Lock()
+	defer s.Unlock()
 	return s.meta.Size() == 0
 }
 
@@ -164,7 +187,7 @@ func findReadOffset(mmap *utils.Mmap) int64 {
 		buffer := make([]byte, 1)
 		mmap.ReadAt(buffer, offset+MESSAGE_META_SIZE-1)
 		status := Status(buffer[0])
-		if status == STATUS_QUEUED {
+		if status == STATUS_QUEUED || status == STATUS_PULLED {
 			break
 		}
 	}
@@ -177,10 +200,14 @@ func (s *Store) Close() {
 }
 
 func (s *Store) Ref() {
+	s.Lock()
+	defer s.Unlock()
 	s.references++
 }
 
 func (s *Store) Unref() bool {
+	s.Lock()
+	defer s.Unlock()
 	s.references--
 	if s.references <= 0 {
 		s.Close()
@@ -198,28 +225,33 @@ func (s *Store) GetAndIncrease() ID {
 }
 
 func (s *Store) Put(message MessageData) error {
+	s.Cond.L.Lock()
+	defer s.Cond.L.Unlock()
 	err := s.data.Append(message)
-	if err == nil {
-		length := message.Size()
-		meta := NewMessageMeta(s.GetAndIncrease(), s.writeOffset, length)
-		fmt.Printf("[put msg] id: %d, offset: %d, len: %d, val: %s\n", meta.ID, meta.Offset, meta.Length, string(message))
-		metaEncoded, err := meta.Encode()
-		if err == nil {
-			s.meta.Append(metaEncoded)
-		}
-		s.writeOffset += length
-		s.lastTick = time.Now()
-	} else {
-		log.Err(err).Send()
+	if err != nil {
+		return err
 	}
-	return err
+
+	length := message.Size()
+	meta := NewMessageMeta(s.GetAndIncrease(), s.writeOffset, length)
+	log.Debug().Msgf("[put] <%s> id: %d", s.Priority, meta.ID)
+	metaEncoded, err := meta.Encode()
+	if err != nil {
+		return err
+	}
+	s.meta.Append(metaEncoded)
+	s.writeOffset += length
+	s.Cond.Signal()
+	return nil
 }
 
 func (s *Store) Get() (*Message, error) {
-	metaBuffer := make([]byte, MESSAGE_META_SIZE)
-	if s.readOffset >= s.meta.Size() {
-		return nil, errors.New("no more messages")
+	s.Cond.L.Lock()
+	defer s.Cond.L.Unlock()
+	for s.readOffset >= s.meta.Size() {
+		s.Cond.Wait()
 	}
+	metaBuffer := make([]byte, MESSAGE_META_SIZE)
 	s.meta.ReadAt(metaBuffer, s.readOffset)
 	meta, err := DecodeMessageMeta(metaBuffer)
 	if err != nil {
@@ -255,7 +287,7 @@ type Stores struct {
 	writes map[Priority]*Store
 }
 
-func NewStores(queue string) *Stores {
+func NewStores(queue string, normChan chan *Message, highChan chan *Message, urgentChan chan *Message) *Stores {
 	sm := NewStoreManager()
 	normRead, err := FindReadStore(sm, queue, PRIORITY_NORMAL)
 	if err != nil {
@@ -281,7 +313,7 @@ func NewStores(queue string) *Stores {
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to load urgent write store for queue: %s", queue)
 	}
-	return &Stores{
+	stores := &Stores{
 		sm: sm,
 		reads: map[Priority]*Store{
 			PRIORITY_NORMAL: normRead,
@@ -294,6 +326,12 @@ func NewStores(queue string) *Stores {
 			PRIORITY_URGENT: urgentWrite,
 		},
 	}
+
+	go stores.bufferLoader(PRIORITY_URGENT, urgentChan)
+	go stores.bufferLoader(PRIORITY_HIGH, highChan)
+	go stores.bufferLoader(PRIORITY_NORMAL, normChan)
+
+	return stores
 }
 
 func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
@@ -345,15 +383,28 @@ func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, 
 	return sm.GetStore(queue, priority, ID(number))
 }
 
-func (s *Stores) Debug() {
-	fmt.Println("=================== read ==================")
-	for _, store := range s.reads {
-		store.Debug()
+func (s *Stores) bufferLoader(priority Priority, buffer chan *Message) {
+	for {
+		msg, err := s.Pull(priority)
+		if err != nil {
+			continue
+		}
+		log.Debug().Msgf("[buffer] <%s> id: %d", priority, msg.ID)
+		buffer <- msg
 	}
-	fmt.Println("=================== write ==================")
-	for _, store := range s.writes {
-		store.Debug()
-	}
+}
+
+func (s *Stores) String() string {
+	return strings.Join([]string{
+		"  ------------------------  reads  ------------------------",
+		s.reads[PRIORITY_NORMAL].String(),
+		s.reads[PRIORITY_HIGH].String(),
+		s.reads[PRIORITY_URGENT].String(),
+		"  ------------------------  writes ------------------------",
+		s.writes[PRIORITY_NORMAL].String(),
+		s.writes[PRIORITY_HIGH].String(),
+		s.writes[PRIORITY_URGENT].String(),
+	}, "\n")
 }
 
 func (s *Stores) Put(message MessageData, priority Priority) error {

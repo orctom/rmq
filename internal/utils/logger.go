@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -13,17 +14,20 @@ import (
 )
 
 func init() {
-	zerolog.TimeFieldFormat = conf.DATETIME_FMT_ZONE
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	var writer io.Writer
 	if conf.Config.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: conf.DATETIME_FMT_ZONE}
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		zerolog.TimeFieldFormat = conf.DATETIME_FMT_ZONE
+		cwd, _ := os.Getwd()
+		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+			file = strings.TrimPrefix(file, cwd)
+			return file + ":" + strconv.Itoa(line)
+		}
+		writer = os.Stdout
 	}
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
-	cwd, _ := os.Getwd()
-	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
-		file = strings.TrimPrefix(file, cwd)
-		return file + ":" + strconv.Itoa(line)
-	}
-	log.Logger = zerolog.New(os.Stdout).With().Timestamp().Caller().Logger()
+	log.Logger = zerolog.New(writer).With().Timestamp().Caller().Logger()
 }

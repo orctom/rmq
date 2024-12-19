@@ -1,57 +1,31 @@
 package queue
 
-import "time"
+import (
+	"fmt"
+)
 
 type Consumer struct {
 }
 
 type Queue struct {
 	Name         string
-	buffer       buffer
+	buffer       *Buffer
 	sentMessages *SentMessages
 	stores       *Stores
 }
 
 func NewQueue(name string) *Queue {
+	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
+	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
+	urgentChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	timeoutChan := make(chan *Message, 1000)
 	sentChan := make(chan *Message, 1000)
 	queue := &Queue{
 		Name:         name,
-		buffer:       *NewBuffer(sentChan),
+		buffer:       NewBuffer(normChan, highChan, urgentChan, sentChan),
 		sentMessages: NewSentMessages(TTL_1_MINUTE, timeoutChan),
-		stores:       NewStores(name),
+		stores:       NewStores(name, normChan, highChan, urgentChan),
 	}
-
-	go func() {
-		for {
-			msg, err := queue.stores.Pull(PRIORITY_URGENT)
-			if err != nil || msg == nil {
-				time.Sleep(time.Second * 2)
-				continue
-			}
-			queue.buffer.Put(msg)
-		}
-	}()
-	go func() {
-		for {
-			msg, err := queue.stores.Pull(PRIORITY_HIGH)
-			if err != nil || msg == nil {
-				time.Sleep(time.Second * 2)
-				continue
-			}
-			queue.buffer.Put(msg)
-		}
-	}()
-	go func() {
-		for {
-			msg, err := queue.stores.Pull(PRIORITY_NORMAL)
-			if err != nil || msg == nil {
-				time.Sleep(time.Second * 2)
-				continue
-			}
-			queue.buffer.Put(msg)
-		}
-	}()
 
 	go func() {
 		for {
@@ -68,6 +42,10 @@ func NewQueue(name string) *Queue {
 	}()
 
 	return queue
+}
+
+func (q *Queue) String() string {
+	return fmt.Sprintf("Queue: %s\n  Buffer : %s\n  Sent   : %d\n  Stores : \n%s\n", q.Name, q.buffer.String(), q.sentMessages.Size(), q.stores)
 }
 
 func (q *Queue) Put(message MessageData, priority Priority) {

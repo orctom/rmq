@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/rand"
 
 	"orctom.com/rmq/internal/queue"
 	"orctom.com/rmq/internal/ui"
@@ -79,10 +79,13 @@ func testMmap() {
 
 func testID() {
 	q := queue.NewQueue("dummy")
+	println(rand.Intn(100))
 
+	// producer
 	go func() {
 		for i := 0; i < 10; i++ {
 			priority := queue.Priority(rand.Intn(3))
+			priority = queue.PRIORITY_NORMAL
 			q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] hello world", i)), priority)
 		}
 		time.Sleep(10 * time.Second)
@@ -90,17 +93,40 @@ func testID() {
 		q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] ======= done =======", 100)), priority)
 	}()
 
+	// consumer
 	go func() {
+		time.Sleep(2 * time.Second)
+		log.Debug().Msg(q.String())
+		log.Debug().Msg("consumer started")
 		for {
 			msg := q.Get()
 			if msg == nil {
-				time.Sleep(5 * time.Second)
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			fmt.Println(msg)
-			time.Sleep(1 * time.Second)
+			log.Debug().Msgf("\t consumer \t\t %s", msg)
+			q.Ack(msg.ID)
+			// time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	time.Sleep(time.Second * 30)
+	// items := make(chan string, 3)
+
+	// go func() {
+	// 	for i := 0; i < 10; i++ {
+	// 		items <- fmt.Sprintf("[%d] %d", i, rand.Intn(10))
+	// 		fmt.Printf("\t\t\tpushed %d\n", i)
+	// 	}
+	// }()
+	// go func() {
+	// 	for {
+	// 		item := <-items
+	// 		fmt.Println(item)
+	// 		time.Sleep(1 * time.Second)
+	// 	}
+	// }()
+
+	time.Sleep(time.Second * 10)
+	log.Debug().Msg(q.String())
+	log.Info().Msg("exit")
 }

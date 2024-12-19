@@ -70,7 +70,7 @@ type Message struct {
 }
 
 func (m *Message) String() string {
-	return fmt.Sprintf("Message{ID: %d, Priority: %d, Data: %s}", m.ID, m.Priority, string(m.Data))
+	return fmt.Sprintf("Message{<%s> id: %d, data: %s}", m.Priority, m.ID, string(m.Data))
 }
 
 // --------------------------------- sent messages ---------------------------------
