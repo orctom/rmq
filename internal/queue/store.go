@@ -1,12 +1,7 @@
 package queue
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -25,8 +20,6 @@ func QueuePath(queue string) string {
 func StorePath(queue string, priority Priority, id ID, ext string) string {
 	return fmt.Sprintf("%s/queue/%s/%d-%s%s", BASE_PATH, queue, priority, id, ext)
 }
-
-// =========================== store ===========================
 
 type Store struct {
 	Queue       string
@@ -149,9 +142,6 @@ func (s *Store) String() string {
 		s.meta.ReadAt(buffer, offset)
 		meta, _ := DecodeMessageMeta(buffer)
 		if meta.Status != status {
-			if status != STATUS_UNKONWN {
-				items = append(items, "      ...")
-			}
 			items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", meta.ID, meta.Offset, meta.Length, meta.Status))
 			lastAdded = meta
 		}
@@ -160,7 +150,6 @@ func (s *Store) String() string {
 		counter.Count(meta.Status)
 	}
 	if last != lastAdded {
-		items = append(items, "      ...")
 		items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", last.ID, last.Offset, last.Length, last.Status))
 	}
 	items = append(items, fmt.Sprintf("    [counts] %s", counter.String()))
@@ -277,158 +266,4 @@ func (s *Store) UpdateStatus(id ID, status Status) error {
 	data := []byte{uint8(status)}
 	offset := int64(id)*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
 	return s.meta.WriteAt(data, offset, false)
-}
-
-// =========================== stores ===========================
-
-type Stores struct {
-	sm     *StoreManager
-	reads  map[Priority]*Store
-	writes map[Priority]*Store
-}
-
-func NewStores(queue string, normChan chan *Message, highChan chan *Message, urgentChan chan *Message) *Stores {
-	sm := NewStoreManager()
-	normRead, err := FindReadStore(sm, queue, PRIORITY_NORMAL)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load norm read store for queue: %s", queue)
-	}
-	normWrite, err := FindWriteStore(sm, queue, PRIORITY_NORMAL)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load norm write store for queue: %s", queue)
-	}
-	highRead, err := FindReadStore(sm, queue, PRIORITY_HIGH)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load high read store for queue: %s", queue)
-	}
-	highWrite, err := FindWriteStore(sm, queue, PRIORITY_HIGH)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load high write store for queue: %s", queue)
-	}
-	urgentRead, err := FindReadStore(sm, queue, PRIORITY_URGENT)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load urgent read store for queue: %s", queue)
-	}
-	urgentWrite, err := FindWriteStore(sm, queue, PRIORITY_URGENT)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load urgent write store for queue: %s", queue)
-	}
-	stores := &Stores{
-		sm: sm,
-		reads: map[Priority]*Store{
-			PRIORITY_NORMAL: normRead,
-			PRIORITY_HIGH:   highRead,
-			PRIORITY_URGENT: urgentRead,
-		},
-		writes: map[Priority]*Store{
-			PRIORITY_NORMAL: normWrite,
-			PRIORITY_HIGH:   highWrite,
-			PRIORITY_URGENT: urgentWrite,
-		},
-	}
-
-	go stores.bufferLoader(PRIORITY_URGENT, urgentChan)
-	go stores.bufferLoader(PRIORITY_HIGH, highChan)
-	go stores.bufferLoader(PRIORITY_NORMAL, normChan)
-
-	return stores
-}
-
-func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
-	dir := os.DirFS(QueuePath(queue))
-	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return sm.GetStore(queue, priority, 0)
-	}
-
-	sort.Strings(files)
-	var startID ID = 0
-	for _, metaPath := range files {
-		number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		store, err := sm.GetStore(queue, priority, ID(number))
-		if err != nil {
-			return nil, err
-		}
-		if store.IsReadEOF() {
-			continue
-		}
-		startID = store.StartID
-		break
-	}
-	return sm.GetStore(queue, priority, startID)
-}
-
-func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
-	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
-	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
-	if err != nil {
-		return nil, err
-	}
-	if len(files) == 0 {
-		return sm.GetStore(queue, priority, 0)
-	}
-
-	sort.Strings(files)
-	metaPath := files[len(files)-1]
-	number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	return sm.GetStore(queue, priority, ID(number))
-}
-
-func (s *Stores) bufferLoader(priority Priority, buffer chan *Message) {
-	for {
-		msg, err := s.Pull(priority)
-		if err != nil {
-			continue
-		}
-		log.Debug().Msgf("[buffer] <%s> id: %d", priority, msg.ID)
-		buffer <- msg
-	}
-}
-
-func (s *Stores) String() string {
-	return strings.Join([]string{
-		"  ------------------------  reads  ------------------------",
-		s.reads[PRIORITY_NORMAL].String(),
-		s.reads[PRIORITY_HIGH].String(),
-		s.reads[PRIORITY_URGENT].String(),
-		"  ------------------------  writes ------------------------",
-		s.writes[PRIORITY_NORMAL].String(),
-		s.writes[PRIORITY_HIGH].String(),
-		s.writes[PRIORITY_URGENT].String(),
-	}, "\n")
-}
-
-func (s *Stores) Put(message MessageData, priority Priority) error {
-	return s.writes[priority].Put(message)
-}
-
-func (s *Stores) Get() (*Message, error) {
-	if msg, err := s.reads[PRIORITY_URGENT].Get(); err == nil {
-		return msg, nil
-	}
-	if msg, err := s.reads[PRIORITY_HIGH].Get(); err == nil {
-		return msg, nil
-	}
-	if msg, err := s.reads[PRIORITY_NORMAL].Get(); err == nil {
-		return msg, nil
-	}
-
-	return nil, errors.New("no messages available")
-}
-
-func (s *Stores) Pull(priority Priority) (*Message, error) {
-	return s.writes[priority].Get()
-}
-
-func (s *Stores) UpdateStatus(priority Priority, id ID, status Status) error {
-	return s.reads[priority].UpdateStatus(id, status)
 }

@@ -2,64 +2,255 @@ package queue
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
-type Consumer struct {
-}
-
 type Queue struct {
-	Name         string
-	buffer       *Buffer
-	sentMessages *SentMessages
-	stores       *Stores
+	Name        string
+	sm          *StoreManager
+	reads       map[Priority]*Store
+	writes      map[Priority]*Store
+	normChan    chan *Message
+	highChan    chan *Message
+	urgentChan  chan *Message
+	sentChan    chan *Message
+	timeoutChan chan *Message
+	unAcked     map[ID]*UnAcked
+	queueCond   *sync.Cond
 }
 
 func NewQueue(name string) *Queue {
+	sm := NewStoreManager()
+	normRead, err := FindReadStore(sm, name, PRIORITY_NORMAL)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load norm read store for queue: %s", name)
+	}
+	normWrite, err := FindWriteStore(sm, name, PRIORITY_NORMAL)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load norm write store for queue: %s", name)
+	}
+	highRead, err := FindReadStore(sm, name, PRIORITY_HIGH)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load high read store for queue: %s", name)
+	}
+	highWrite, err := FindWriteStore(sm, name, PRIORITY_HIGH)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load high write store for queue: %s", name)
+	}
+	urgentRead, err := FindReadStore(sm, name, PRIORITY_URGENT)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load urgent read store for queue: %s", name)
+	}
+	urgentWrite, err := FindWriteStore(sm, name, PRIORITY_URGENT)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to load urgent write store for queue: %s", name)
+	}
 	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	urgentChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
-	timeoutChan := make(chan *Message, 1000)
 	sentChan := make(chan *Message, 1000)
 	queue := &Queue{
-		Name:         name,
-		buffer:       NewBuffer(normChan, highChan, urgentChan, sentChan),
-		sentMessages: NewSentMessages(TTL_1_MINUTE, timeoutChan),
-		stores:       NewStores(name, normChan, highChan, urgentChan),
+		Name: name,
+		sm:   sm,
+		reads: map[Priority]*Store{
+			PRIORITY_NORMAL: normRead,
+			PRIORITY_HIGH:   highRead,
+			PRIORITY_URGENT: urgentRead,
+		},
+		writes: map[Priority]*Store{
+			PRIORITY_NORMAL: normWrite,
+			PRIORITY_HIGH:   highWrite,
+			PRIORITY_URGENT: urgentWrite,
+		},
+		normChan:   normChan,
+		highChan:   highChan,
+		urgentChan: urgentChan,
+		sentChan:   sentChan,
+		unAcked:    make(map[ID]*UnAcked),
+		queueCond:  sync.NewCond(&sync.Mutex{}),
 	}
 
-	go func() {
-		for {
-			msg := <-timeoutChan
-			queue.stores.Put(msg.Data, msg.Priority)
-		}
-	}()
-
-	go func() {
-		for {
-			msg := <-sentChan
-			queue.stores.UpdateStatus(msg.Priority, msg.ID, STATUS_SENT)
-		}
-	}()
+	go queue.bufferLoader(PRIORITY_URGENT, urgentChan)
+	go queue.bufferLoader(PRIORITY_HIGH, highChan)
+	go queue.bufferLoader(PRIORITY_NORMAL, normChan)
+	go queue.sentStatusTracker()
+	go queue.unAckedChecker()
 
 	return queue
 }
 
-func (q *Queue) String() string {
-	return fmt.Sprintf("Queue: %s\n  Buffer : %s\n  Sent   : %d\n  Stores : \n%s\n", q.Name, q.buffer.String(), q.sentMessages.Size(), q.stores)
+func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
+	dir := os.DirFS(QueuePath(queue))
+	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return sm.GetStore(queue, priority, 0)
+	}
+
+	sort.Strings(files)
+	var startID ID = 0
+	for _, metaPath := range files {
+		number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		store, err := sm.GetStore(queue, priority, ID(number))
+		if err != nil {
+			return nil, err
+		}
+		if store.IsReadEOF() {
+			continue
+		}
+		startID = store.StartID
+		break
+	}
+	return sm.GetStore(queue, priority, startID)
 }
 
-func (q *Queue) Put(message MessageData, priority Priority) {
-	q.stores.Put(message, priority)
+func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
+	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
+	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return sm.GetStore(queue, priority, 0)
+	}
+
+	sort.Strings(files)
+	metaPath := files[len(files)-1]
+	number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return sm.GetStore(queue, priority, ID(number))
+}
+
+func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
+	for {
+		msg, err := q.Pull(priority)
+		log.Debug().Msgf("[buffer] \t\t\t<%s> pulled %d", priority, msg.ID)
+		if err != nil {
+			log.Error().Err(err).Send()
+			continue
+		}
+		log.Debug().Msgf("[buffer] <%s> id: %d", priority, msg.ID)
+		buffer <- msg
+		q.queueCond.L.Lock()
+		q.queueCond.Signal()
+		q.queueCond.L.Unlock()
+	}
+}
+
+func (q *Queue) sentStatusTracker() {
+	for {
+		msg := <-q.sentChan
+		q.UpdateStatus(msg.Priority, msg.ID, STATUS_SENT)
+	}
+}
+
+func (q *Queue) unAckedChecker() {
+	for now := range time.Tick(time.Second * 30) {
+		for k, v := range q.unAcked {
+			if now.Unix()-v.time >= TTL_1_MINUTE {
+				delete(q.unAcked, k)
+				q.Put(v.msg.Data, v.msg.Priority)
+			}
+		}
+	}
+}
+
+func (q *Queue) String() string {
+	return strings.Join([]string{
+		fmt.Sprintf("Queue: %s", q.Name),
+		fmt.Sprintf("  Buffer  : n: %d, h: %d, u: %d, s: %d", len(q.normChan), len(q.highChan), len(q.urgentChan), len(q.sentChan)),
+		fmt.Sprintf("  UnAcked : %d", len(q.unAcked)),
+		"  Stores  :",
+		"  ------------------------  reads  ------------------------",
+		q.reads[PRIORITY_NORMAL].String(),
+		q.reads[PRIORITY_HIGH].String(),
+		q.reads[PRIORITY_URGENT].String(),
+		"  ------------------------  writes ------------------------",
+		q.writes[PRIORITY_NORMAL].String(),
+		q.writes[PRIORITY_HIGH].String(),
+		q.writes[PRIORITY_URGENT].String(),
+	}, "\n")
+}
+
+func (q *Queue) Put(message MessageData, priority Priority) error {
+	return q.writes[priority].Put(message)
 }
 
 func (q *Queue) Get() *Message {
-	return q.buffer.Get()
+	select {
+	case msg := <-q.urgentChan:
+		q.sentChan <- msg
+		return msg
+	default:
+		select {
+		case msg := <-q.highChan:
+			q.sentChan <- msg
+			return msg
+		default:
+			select {
+			case msg := <-q.normChan:
+				q.sentChan <- msg
+				return msg
+			default:
+				return nil
+			}
+		}
+	}
 }
 
 func (q *Queue) BGet() *Message {
-	return q.buffer.BGet()
+	for {
+		q.queueCond.L.Lock()
+		defer q.queueCond.L.Unlock()
+
+		select {
+		case msg := <-q.urgentChan:
+			q.sentChan <- msg
+			return msg
+		default:
+			select {
+			case msg := <-q.highChan:
+				q.sentChan <- msg
+				return msg
+			default:
+				select {
+				case msg := <-q.normChan:
+					q.sentChan <- msg
+					return msg
+				default:
+					log.Info().Msg("waiting")
+					q.queueCond.Wait()
+					log.Info().Msg("got notified, checking again")
+					continue
+				}
+			}
+		}
+	}
+}
+
+func (q *Queue) Pull(priority Priority) (*Message, error) {
+	return q.writes[priority].Get()
+}
+
+func (q *Queue) UpdateStatus(priority Priority, id ID, status Status) error {
+	return q.reads[priority].UpdateStatus(id, status)
 }
 
 func (q *Queue) Ack(id ID) {
-	q.sentMessages.Ack(id)
+	delete(q.unAcked, id)
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"time"
 )
 
 type ID int64
@@ -12,8 +11,6 @@ type ID int64
 func (id ID) String() string {
 	return fmt.Sprintf("%0*d", 20, id)
 }
-
-// --------------------------------- message id ---------------------------------
 
 type MessageMeta struct {
 	ID     ID
@@ -49,8 +46,6 @@ func DecodeMessageMeta(data []byte) (*MessageMeta, error) {
 	return &meta, nil
 }
 
-// --------------------------------- message data ---------------------------------
-
 type MessageData []byte
 
 func (md MessageData) Size() int64 {
@@ -60,8 +55,6 @@ func (md MessageData) Size() int64 {
 func MessageDataFromStr(msg string) MessageData {
 	return []byte(msg)
 }
-
-// --------------------------------- message ---------------------------------
 
 type Message struct {
 	ID       ID
@@ -73,45 +66,7 @@ func (m *Message) String() string {
 	return fmt.Sprintf("Message{<%s> id: %d, data: %s}", m.Priority, m.ID, string(m.Data))
 }
 
-// --------------------------------- sent messages ---------------------------------
-
-type SentMessage struct {
+type UnAcked struct {
 	msg  *Message
 	time int64
-}
-
-type SentMessages struct {
-	sent map[ID]*SentMessage
-}
-
-func NewSentMessages(ttl int64, timeoutChan chan *Message) *SentMessages {
-	sm := &SentMessages{
-		sent: make(map[ID]*SentMessage),
-	}
-	go func() {
-		for now := range time.Tick(time.Second * 30) {
-			for k, v := range sm.sent {
-				if now.Unix()-v.time >= ttl {
-					delete(sm.sent, k)
-					timeoutChan <- v.msg
-				}
-			}
-		}
-	}()
-	return sm
-}
-
-func (sm *SentMessages) Size() int {
-	return len(sm.sent)
-}
-
-func (sm *SentMessages) Sent(msg *Message) {
-	sm.sent[msg.ID] = &SentMessage{
-		msg:  msg,
-		time: time.Now().Unix(),
-	}
-}
-
-func (sm *SentMessages) Ack(id ID) {
-	delete(sm.sent, id)
 }
