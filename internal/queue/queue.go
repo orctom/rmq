@@ -53,8 +53,11 @@ func (q *Queue) Put(message MessageData, priority Priority) {
 }
 
 func (q *Queue) Get() *Message {
-	msg := q.buffer.Get()
-	return msg
+	return q.buffer.Get()
+}
+
+func (q *Queue) BGet() *Message {
+	return q.buffer.BGet()
 }
 
 func (q *Queue) Ack(id ID) {

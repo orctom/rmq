@@ -81,25 +81,24 @@ func testID() {
 	q := queue.NewQueue("dummy")
 	println(rand.Intn(100))
 
-	// producer
-	go func() {
-		for i := 0; i < 10; i++ {
-			priority := queue.Priority(rand.Intn(3))
-			priority = queue.PRIORITY_NORMAL
-			q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] hello world", i)), priority)
-		}
-		time.Sleep(10 * time.Second)
-		priority := queue.Priority(rand.Intn(3))
-		q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] ======= done =======", 100)), priority)
-	}()
+	// go func() {
+	//  log.Debug().Msg("producer started")
+	// 	for i := 0; i < 10; i++ {
+	// 		priority := queue.Priority(rand.Intn(3))
+	// 		// priority = queue.PRIORITY_NORMAL
+	// 		q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] hello world", i)), priority)
+	// 	}
+	// 	time.Sleep(1 * time.Second)
+	// 	priority := queue.Priority(rand.Intn(3))
+	// 	q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] == done ==", 100)), priority)
+	// }()
 
-	// consumer
 	go func() {
-		time.Sleep(2 * time.Second)
-		log.Debug().Msg(q.String())
+		// time.Sleep(2 * time.Second)
+		// log.Debug().Msg(q.String())
 		log.Debug().Msg("consumer started")
 		for {
-			msg := q.Get()
+			msg := q.BGet()
 			if msg == nil {
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -127,6 +126,6 @@ func testID() {
 	// }()
 
 	time.Sleep(time.Second * 10)
-	log.Debug().Msg(q.String())
+	// log.Debug().Msg(q.String())
 	log.Info().Msg("exit")
 }

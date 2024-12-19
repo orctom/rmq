@@ -39,7 +39,7 @@ type Store struct {
 	id          ID
 	references  int
 	sync.Mutex
-	Cond *sync.Cond
+	cond *sync.Cond
 }
 
 type StoreManager struct {
@@ -117,7 +117,7 @@ func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
 		readOffset:  readOffset,
 		writeOffset: writeOffset,
 		id:          id,
-		Cond:        sync.NewCond(&sync.Mutex{}),
+		cond:        sync.NewCond(&sync.Mutex{}),
 	}, nil
 }
 
@@ -225,8 +225,8 @@ func (s *Store) GetAndIncrease() ID {
 }
 
 func (s *Store) Put(message MessageData) error {
-	s.Cond.L.Lock()
-	defer s.Cond.L.Unlock()
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 	err := s.data.Append(message)
 	if err != nil {
 		return err
@@ -241,15 +241,15 @@ func (s *Store) Put(message MessageData) error {
 	}
 	s.meta.Append(metaEncoded)
 	s.writeOffset += length
-	s.Cond.Signal()
+	s.cond.Signal()
 	return nil
 }
 
 func (s *Store) Get() (*Message, error) {
-	s.Cond.L.Lock()
-	defer s.Cond.L.Unlock()
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 	for s.readOffset >= s.meta.Size() {
-		s.Cond.Wait()
+		s.cond.Wait()
 	}
 	metaBuffer := make([]byte, MESSAGE_META_SIZE)
 	s.meta.ReadAt(metaBuffer, s.readOffset)
