@@ -4,27 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"unsafe"
+	"time"
+
+	"github.com/rs/zerolog/log"
 )
-
-func IntToByteArray(num uint64) []byte {
-	size := int(unsafe.Sizeof(num))
-	arr := make([]byte, size)
-	for i := 0; i < size; i++ {
-		byt := *(*uint8)(unsafe.Pointer(uintptr(unsafe.Pointer(&num)) + uintptr(i)))
-		arr[i] = byt
-	}
-	return arr
-}
-
-func ByteArrayToInt(arr []byte) uint64 {
-	val := uint64(0)
-	size := len(arr)
-	for i := 0; i < size; i++ {
-		*(*uint8)(unsafe.Pointer(uintptr(unsafe.Pointer(&val)) + uintptr(i))) = arr[i]
-	}
-	return val
-}
 
 type Counter struct {
 	counter map[interface{}]int
@@ -69,4 +52,22 @@ func JoinKV(dict map[interface{}]interface{}, sep string) string {
 		pairs = append(pairs, fmt.Sprintf("%s: %s", key, value))
 	}
 	return strings.Join(pairs, sep)
+}
+
+func EncodeTime(t time.Time) []byte {
+	b, err := t.MarshalBinary()
+	if err != nil {
+		log.Error().Err(err).Send()
+		return nil
+	}
+	return b
+}
+
+func DecodeTime(b []byte) time.Time {
+	var t time.Time
+	err := t.UnmarshalBinary(b)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+	return t
 }

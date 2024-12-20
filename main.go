@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/rs/zerolog/log"
 
 	"orctom.com/rmq/internal/queue"
@@ -24,6 +25,7 @@ func main() {
 	// testMmap()
 	// time.Sleep(time.Second * 10)
 	testID()
+	// dummy()
 }
 
 func intToBytearray(num uint64) []byte {
@@ -86,12 +88,14 @@ func testID() {
 		// log.Debug().Msg(q.String())
 		log.Debug().Msg("consumer started")
 		for {
-			msg := q.Get()
+			msg := q.BGet()
 			if msg == nil {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(1000 * time.Millisecond)
 				continue
 			}
-			log.Debug().Msgf("\t consumer \t\t %s", msg)
+			t := decodeTime2(msg.Data)
+			took := time.Since(t).String()
+			log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
 			q.Ack(msg.ID)
 			// time.Sleep(200 * time.Millisecond)
 		}
@@ -102,15 +106,63 @@ func testID() {
 		for i := 0; i < 10; i++ {
 			priority := queue.Priority(rand.Intn(3))
 			// priority = queue.PRIORITY_NORMAL
-			q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] hello world", i)), priority)
+			now := time.Now()
+			data := encodeTime2(now)
+			q.Put(queue.MessageData(data), priority)
 		}
 		time.Sleep(1 * time.Second)
 		priority := queue.Priority(rand.Intn(3))
-		q.Put(queue.MessageDataFromStr(fmt.Sprintf("[%d] == done ==", 100)), priority)
+		q.Put(encodeTime2(time.Now()), priority)
 	}()
 
 	log.Info().Msg("wait before exit")
 	time.Sleep(time.Second * 20)
 	log.Debug().Msg(q.String())
 	log.Info().Msg("exit")
+}
+
+func encodeTime1(t time.Time) []byte {
+	b, err := cbor.Marshal(t)
+	if err != nil {
+		log.Error().Err(err).Send()
+		return nil
+	}
+	return b
+}
+
+func decodeTime1(b []byte) time.Time {
+	var t time.Time
+	err := cbor.Unmarshal(b, &t)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+	return t
+}
+
+func encodeTime2(t time.Time) []byte {
+	b, err := t.MarshalBinary()
+	if err != nil {
+		log.Error().Err(err).Send()
+		return nil
+	}
+	return b
+}
+
+func decodeTime2(b []byte) time.Time {
+	var t time.Time
+	err := t.UnmarshalBinary(b)
+	if err != nil {
+		log.Error().Err(err).Send()
+	}
+	return t
+}
+
+func dummy() {
+	for i := 0; i < 100; i++ {
+		now := time.Now()
+		b := encodeTime2(now)
+		v := decodeTime2(b)
+		delta := time.Since(now).String()
+		fmt.Println(v, delta)
+	}
 }

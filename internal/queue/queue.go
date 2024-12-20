@@ -139,7 +139,6 @@ func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, 
 func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	for {
 		msg, err := q.Pull(priority)
-		log.Debug().Msgf("[buffer] \t\t\t<%s> pulled %d", priority, msg.ID)
 		if err != nil {
 			log.Error().Err(err).Send()
 			continue
@@ -215,8 +214,6 @@ func (q *Queue) Get() *Message {
 
 func (q *Queue) BGet() *Message {
 	for {
-		q.queueCond.L.Lock()
-		defer q.queueCond.L.Unlock()
 
 		select {
 		case msg := <-q.urgentChan:
@@ -234,7 +231,9 @@ func (q *Queue) BGet() *Message {
 					return msg
 				default:
 					log.Info().Msg("waiting")
+					q.queueCond.L.Lock()
 					q.queueCond.Wait()
+					q.queueCond.L.Unlock()
 					log.Info().Msg("got notified, checking again")
 					continue
 				}
