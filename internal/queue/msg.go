@@ -66,7 +66,12 @@ func (m *Message) String() string {
 	return fmt.Sprintf("Message{<%s> id: %d, data: %s}", m.Priority, m.ID, string(m.Data))
 }
 
-type UnAcked struct {
+type Unacked struct {
 	msg  *Message
 	time int64
+}
+
+type Acked struct {
+	ID       ID
+	Priority Priority
 }

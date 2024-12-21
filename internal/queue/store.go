@@ -130,7 +130,11 @@ func (s *Store) Key() string {
 
 func (s *Store) String() string {
 	var items = make([]string, 0)
-	items = append(items, fmt.Sprintf("  [%s] meta: %d, data: %d", s.Key(), s.meta.Size(), s.data.Size()))
+	metaSize := utils.BytesToHuman(uint64(s.meta.Size()))
+	dataSize := utils.BytesToHuman(uint64(s.data.Size()))
+	readID := s.GetReadID()
+	writeID := s.GetWriteID()
+	items = append(items, fmt.Sprintf("  [%s] meta: %s, data: %s, read: %d, write: %d", s.Key(), metaSize, dataSize, readID, writeID))
 
 	var status Status = STATUS_UNKONWN
 	var last, lastAdded *MessageMeta = nil, nil
@@ -176,7 +180,7 @@ func findReadOffset(mmap *utils.Mmap) int64 {
 		buffer := make([]byte, 1)
 		mmap.ReadAt(buffer, offset+MESSAGE_META_SIZE-1)
 		status := Status(buffer[0])
-		if status == STATUS_QUEUED || status == STATUS_PULLED {
+		if status != STATUS_ACKED {
 			break
 		}
 	}
@@ -213,6 +217,18 @@ func (s *Store) GetAndIncrease() ID {
 	return id
 }
 
+func (s *Store) GetReadID() ID {
+	s.Lock()
+	defer s.Unlock()
+	return s.StartID + ID(s.readOffset/MESSAGE_META_SIZE)
+}
+
+func (s *Store) GetWriteID() ID {
+	s.Lock()
+	defer s.Unlock()
+	return s.id
+}
+
 func (s *Store) Put(message MessageData) error {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
@@ -245,6 +261,10 @@ func (s *Store) Get() (*Message, error) {
 	meta, err := DecodeMessageMeta(metaBuffer)
 	if err != nil {
 		return nil, err
+	}
+
+	if meta.Status == STATUS_ACKED {
+		return s.Get()
 	}
 
 	dataBuffer := make([]byte, meta.Length)

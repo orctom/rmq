@@ -29,14 +29,14 @@ const (
 type Priority uint8
 
 const (
-	PRIORITY_NORMAL Priority = iota
+	PRIORITY_NORM Priority = iota
 	PRIORITY_HIGH
 	PRIORITY_URGENT
 )
 
 func (p Priority) String() string {
 	switch p {
-	case PRIORITY_NORMAL:
+	case PRIORITY_NORM:
 		return "norm"
 	case PRIORITY_HIGH:
 		return "high"

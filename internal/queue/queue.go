@@ -14,26 +14,26 @@ import (
 )
 
 type Queue struct {
-	Name        string
-	sm          *StoreManager
-	reads       map[Priority]*Store
-	writes      map[Priority]*Store
-	normChan    chan *Message
-	highChan    chan *Message
-	urgentChan  chan *Message
-	sentChan    chan *Message
-	timeoutChan chan *Message
-	unAcked     map[ID]*UnAcked
-	queueCond   *sync.Cond
+	Name       string
+	sm         *StoreManager
+	reads      map[Priority]*Store
+	writes     map[Priority]*Store
+	normChan   chan *Message
+	highChan   chan *Message
+	urgentChan chan *Message
+	ackedChan  chan *Acked
+	unacked    map[Priority]map[ID]*Unacked
+	metrics    *Metrics
+	queueCond  *sync.Cond
 }
 
 func NewQueue(name string) *Queue {
 	sm := NewStoreManager()
-	normRead, err := FindReadStore(sm, name, PRIORITY_NORMAL)
+	normRead, err := FindReadStore(sm, name, PRIORITY_NORM)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to load norm read store for queue: %s", name)
 	}
-	normWrite, err := FindWriteStore(sm, name, PRIORITY_NORMAL)
+	normWrite, err := FindWriteStore(sm, name, PRIORITY_NORM)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to load norm write store for queue: %s", name)
 	}
@@ -56,32 +56,34 @@ func NewQueue(name string) *Queue {
 	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	urgentChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
-	sentChan := make(chan *Message, 1000)
+	ackedChan := make(chan *Acked, 1000)
 	queue := &Queue{
 		Name: name,
 		sm:   sm,
 		reads: map[Priority]*Store{
-			PRIORITY_NORMAL: normRead,
+			PRIORITY_NORM:   normRead,
 			PRIORITY_HIGH:   highRead,
 			PRIORITY_URGENT: urgentRead,
 		},
 		writes: map[Priority]*Store{
-			PRIORITY_NORMAL: normWrite,
+			PRIORITY_NORM:   normWrite,
 			PRIORITY_HIGH:   highWrite,
 			PRIORITY_URGENT: urgentWrite,
 		},
 		normChan:   normChan,
 		highChan:   highChan,
 		urgentChan: urgentChan,
-		sentChan:   sentChan,
-		unAcked:    make(map[ID]*UnAcked),
+		ackedChan:  ackedChan,
+		unacked:    make(map[Priority]map[ID]*Unacked),
+		metrics:    NewMetrics(time.Second * 5),
 		queueCond:  sync.NewCond(&sync.Mutex{}),
 	}
+	// queue.initSizes()
 
 	go queue.bufferLoader(PRIORITY_URGENT, urgentChan)
 	go queue.bufferLoader(PRIORITY_HIGH, highChan)
-	go queue.bufferLoader(PRIORITY_NORMAL, normChan)
-	go queue.sentStatusTracker()
+	go queue.bufferLoader(PRIORITY_NORM, normChan)
+	go queue.ackedTracker()
 	go queue.unAckedChecker()
 
 	return queue
@@ -136,6 +138,13 @@ func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, 
 	return sm.GetStore(queue, priority, ID(number))
 }
 
+func (q *Queue) initSizes() {
+	for priority := range []Priority{PRIORITY_URGENT, PRIORITY_HIGH, PRIORITY_NORM} {
+		p := Priority(priority)
+		q.metrics.SetSize(p, int64(q.writes[p].GetWriteID()-q.reads[p].GetReadID()))
+	}
+}
+
 func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	for {
 		msg, err := q.Pull(priority)
@@ -151,19 +160,22 @@ func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	}
 }
 
-func (q *Queue) sentStatusTracker() {
+func (q *Queue) ackedTracker() {
 	for {
-		msg := <-q.sentChan
-		q.UpdateStatus(msg.Priority, msg.ID, STATUS_SENT)
+		msg := <-q.ackedChan
+		q.reads[msg.Priority].UpdateStatus(msg.ID, STATUS_ACKED)
+		q.metrics.MarkOut(msg.Priority)
 	}
 }
 
 func (q *Queue) unAckedChecker() {
 	for now := range time.Tick(time.Second * 30) {
-		for k, v := range q.unAcked {
-			if now.Unix()-v.time >= TTL_1_MINUTE {
-				delete(q.unAcked, k)
-				q.Put(v.msg.Data, v.msg.Priority)
+		for _, entries := range q.unacked {
+			for id, unacked := range entries {
+				if now.Unix()-unacked.time >= TTL_1_MINUTE {
+					delete(entries, id)
+					q.Put(unacked.msg.Data, unacked.msg.Priority)
+				}
 			}
 		}
 	}
@@ -172,38 +184,48 @@ func (q *Queue) unAckedChecker() {
 func (q *Queue) String() string {
 	return strings.Join([]string{
 		fmt.Sprintf("Queue: %s", q.Name),
-		fmt.Sprintf("  Buffer  : n: %d, h: %d, u: %d, s: %d", len(q.normChan), len(q.highChan), len(q.urgentChan), len(q.sentChan)),
-		fmt.Sprintf("  UnAcked : %d", len(q.unAcked)),
+		fmt.Sprintf("  Buffer  : norm: %d, high: %d, urgent: %d, acked: %d", len(q.normChan), len(q.highChan), len(q.urgentChan), len(q.ackedChan)),
+		fmt.Sprintf("  UnAcked : %d", len(q.unacked[PRIORITY_URGENT])+len(q.unacked[PRIORITY_HIGH])+len(q.unacked[PRIORITY_NORM])),
+		fmt.Sprintf("  Metrics : %s", q.metrics.String()),
 		"  Stores  :",
 		"  ------------------------  reads  ------------------------",
-		q.reads[PRIORITY_NORMAL].String(),
+		q.reads[PRIORITY_NORM].String(),
 		q.reads[PRIORITY_HIGH].String(),
 		q.reads[PRIORITY_URGENT].String(),
 		"  ------------------------  writes ------------------------",
-		q.writes[PRIORITY_NORMAL].String(),
+		q.writes[PRIORITY_NORM].String(),
 		q.writes[PRIORITY_HIGH].String(),
 		q.writes[PRIORITY_URGENT].String(),
 	}, "\n")
 }
 
+func (q *Queue) Sizes() map[Priority]int64 {
+	return q.metrics.Sizes()
+}
+
+func (q *Queue) Rates() map[Priority]*InOutRates {
+	return q.metrics.Rates()
+}
+
 func (q *Queue) Put(message MessageData, priority Priority) error {
-	return q.writes[priority].Put(message)
+	err := q.writes[priority].Put(message)
+	if err == nil {
+		q.metrics.MarkIn(priority)
+	}
+	return err
 }
 
 func (q *Queue) Get() *Message {
 	select {
 	case msg := <-q.urgentChan:
-		q.sentChan <- msg
 		return msg
 	default:
 		select {
 		case msg := <-q.highChan:
-			q.sentChan <- msg
 			return msg
 		default:
 			select {
 			case msg := <-q.normChan:
-				q.sentChan <- msg
 				return msg
 			default:
 				return nil
@@ -214,27 +236,21 @@ func (q *Queue) Get() *Message {
 
 func (q *Queue) BGet() *Message {
 	for {
-
 		select {
 		case msg := <-q.urgentChan:
-			q.sentChan <- msg
 			return msg
 		default:
 			select {
 			case msg := <-q.highChan:
-				q.sentChan <- msg
 				return msg
 			default:
 				select {
 				case msg := <-q.normChan:
-					q.sentChan <- msg
 					return msg
 				default:
-					log.Info().Msg("waiting")
 					q.queueCond.L.Lock()
 					q.queueCond.Wait()
 					q.queueCond.L.Unlock()
-					log.Info().Msg("got notified, checking again")
 					continue
 				}
 			}
@@ -246,10 +262,7 @@ func (q *Queue) Pull(priority Priority) (*Message, error) {
 	return q.writes[priority].Get()
 }
 
-func (q *Queue) UpdateStatus(priority Priority, id ID, status Status) error {
-	return q.reads[priority].UpdateStatus(id, status)
-}
-
-func (q *Queue) Ack(id ID) {
-	delete(q.unAcked, id)
+func (q *Queue) Ack(priority Priority, id ID) {
+	delete(q.unacked[priority], id)
+	q.ackedChan <- &Acked{ID: id, Priority: priority}
 }
