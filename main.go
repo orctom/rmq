@@ -96,7 +96,7 @@ func testID() {
 			t := decodeTime2(msg.Data)
 			took := time.Since(t).String()
 			log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
-			q.Ack(msg.ID)
+			q.Ack(msg.Priority, msg.ID)
 			// time.Sleep(200 * time.Millisecond)
 		}
 	}()
@@ -158,11 +158,16 @@ func decodeTime2(b []byte) time.Time {
 }
 
 func dummy() {
-	for i := 0; i < 100; i++ {
-		now := time.Now()
-		b := encodeTime2(now)
-		v := decodeTime2(b)
-		delta := time.Since(now).String()
-		fmt.Println(v, delta)
+	counter := queue.NewMetricsCounter()
+	counter.MarkIns()
+	log.Debug().Msgf("value %d", counter.Get())
+	metrics := queue.NewMetrics(time.Second * 2)
+	for i := 0; i < 20; i++ {
+		time.Sleep(time.Millisecond * time.Duration(rand.Intn(1000)))
+		metrics.MarkIn(queue.PRIORITY_HIGH)
+		metrics.MarkOut(queue.PRIORITY_HIGH)
 	}
+	log.Info().Msgf("metrics sizes: %v", metrics.Sizes())
+	log.Info().Msgf("metrics rates: %v", metrics.Rates())
+	time.Sleep(time.Second * 20)
 }
