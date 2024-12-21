@@ -6,10 +6,10 @@ Rosk Message Queue
 
 - [ ] api
 - [ ] read / write shift
-- [ ] metrics
+- [x] metrics
   - [x] queue size
   - [x] in/out rate
-  - [ ] mem usage
+  - [x] mem usage
 
 ## ref
 
