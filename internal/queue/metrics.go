@@ -175,8 +175,8 @@ func (m *Metrics) Size(priority Priority) int64 {
 
 func (m *Metrics) String() string {
 	return strings.Join([]string{
-		fmt.Sprintf("<%s> %s", PRIORITY_URGENT, m.counters[PRIORITY_URGENT].String()),
-		fmt.Sprintf("<%s> %s", PRIORITY_HIGH, m.counters[PRIORITY_HIGH].String()),
-		fmt.Sprintf("<%s> %s", PRIORITY_NORM, m.counters[PRIORITY_NORM].String()),
-	}, ", ")
+		fmt.Sprintf("\n  <%s> %s", PRIORITY_URGENT, m.counters[PRIORITY_URGENT].String()),
+		fmt.Sprintf("\n  <%s> %s", PRIORITY_HIGH, m.counters[PRIORITY_HIGH].String()),
+		fmt.Sprintf("\n  <%s> %s", PRIORITY_NORM, m.counters[PRIORITY_NORM].String()),
+	}, "")
 }

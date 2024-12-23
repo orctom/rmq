@@ -17,7 +17,9 @@ type Queue struct {
 	Name       string
 	sm         *StoreManager
 	reads      map[Priority]*Store
+	readLocks  map[Priority]*sync.Mutex
 	writes     map[Priority]*Store
+	writeLocks map[Priority]*sync.Mutex
 	normChan   chan *Message
 	highChan   chan *Message
 	urgentChan chan *Message
@@ -29,30 +31,6 @@ type Queue struct {
 
 func NewQueue(name string) *Queue {
 	sm := NewStoreManager()
-	normRead, err := FindReadStore(sm, name, PRIORITY_NORM)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load norm read store for queue: %s", name)
-	}
-	normWrite, err := FindWriteStore(sm, name, PRIORITY_NORM)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load norm write store for queue: %s", name)
-	}
-	highRead, err := FindReadStore(sm, name, PRIORITY_HIGH)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load high read store for queue: %s", name)
-	}
-	highWrite, err := FindWriteStore(sm, name, PRIORITY_HIGH)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load high write store for queue: %s", name)
-	}
-	urgentRead, err := FindReadStore(sm, name, PRIORITY_URGENT)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load urgent read store for queue: %s", name)
-	}
-	urgentWrite, err := FindWriteStore(sm, name, PRIORITY_URGENT)
-	if err != nil {
-		log.Error().Err(err).Msgf("failed to load urgent write store for queue: %s", name)
-	}
 	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	urgentChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
@@ -61,14 +39,24 @@ func NewQueue(name string) *Queue {
 		Name: name,
 		sm:   sm,
 		reads: map[Priority]*Store{
-			PRIORITY_NORM:   normRead,
-			PRIORITY_HIGH:   highRead,
-			PRIORITY_URGENT: urgentRead,
+			PRIORITY_NORM:   FindReadStore(sm, name, PRIORITY_NORM),
+			PRIORITY_HIGH:   FindReadStore(sm, name, PRIORITY_HIGH),
+			PRIORITY_URGENT: FindReadStore(sm, name, PRIORITY_URGENT),
+		},
+		readLocks: map[Priority]*sync.Mutex{
+			PRIORITY_NORM:   new(sync.Mutex),
+			PRIORITY_HIGH:   new(sync.Mutex),
+			PRIORITY_URGENT: new(sync.Mutex),
 		},
 		writes: map[Priority]*Store{
-			PRIORITY_NORM:   normWrite,
-			PRIORITY_HIGH:   highWrite,
-			PRIORITY_URGENT: urgentWrite,
+			PRIORITY_NORM:   FindWriteStore(sm, name, PRIORITY_NORM),
+			PRIORITY_HIGH:   FindWriteStore(sm, name, PRIORITY_HIGH),
+			PRIORITY_URGENT: FindWriteStore(sm, name, PRIORITY_URGENT),
+		},
+		writeLocks: map[Priority]*sync.Mutex{
+			PRIORITY_NORM:   new(sync.Mutex),
+			PRIORITY_HIGH:   new(sync.Mutex),
+			PRIORITY_URGENT: new(sync.Mutex),
 		},
 		normChan:   normChan,
 		highChan:   highChan,
@@ -76,9 +64,9 @@ func NewQueue(name string) *Queue {
 		ackedChan:  ackedChan,
 		unacked:    make(map[Priority]map[ID]*Unacked),
 		metrics:    NewMetrics(time.Second * 5),
-		queueCond:  sync.NewCond(&sync.Mutex{}),
+		queueCond:  sync.NewCond(new(sync.Mutex)),
 	}
-	// queue.initSizes()
+	queue.initSizes()
 
 	go queue.bufferLoader(PRIORITY_URGENT, urgentChan)
 	go queue.bufferLoader(PRIORITY_HIGH, highChan)
@@ -89,11 +77,11 @@ func NewQueue(name string) *Queue {
 	return queue
 }
 
-func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
+func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 	dir := os.DirFS(QueuePath(queue))
 	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
 	if err != nil {
-		return nil, err
+		log.Panic().Err(err).Msgf("[find-read-store] wrong glob pattern")
 	}
 	if len(files) == 0 {
 		return sm.GetStore(queue, priority, 0)
@@ -104,12 +92,9 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, e
 	for _, metaPath := range files {
 		number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
 		if err != nil {
-			return nil, err
+			log.Panic().Err(err).Msgf("[find-read-store] failed to parse id from meta file: %s", metaPath)
 		}
-		store, err := sm.GetStore(queue, priority, ID(number))
-		if err != nil {
-			return nil, err
-		}
+		store := sm.GetStore(queue, priority, ID(number))
 		if store.IsReadEOF() {
 			continue
 		}
@@ -119,11 +104,11 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) (*Store, e
 	return sm.GetStore(queue, priority, startID)
 }
 
-func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, error) {
+func FindWriteStore(sm *StoreManager, queue string, priority Priority) *Store {
 	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
 	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
 	if err != nil {
-		return nil, err
+		log.Panic().Err(err).Msgf("[find-write-store] wrong glob pattern")
 	}
 	if len(files) == 0 {
 		return sm.GetStore(queue, priority, 0)
@@ -133,7 +118,7 @@ func FindWriteStore(sm *StoreManager, queue string, priority Priority) (*Store, 
 	metaPath := files[len(files)-1]
 	number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
 	if err != nil {
-		return nil, err
+		log.Panic().Err(err).Msgf("[find-write-store] failed to parse id from meta file: %s", metaPath)
 	}
 	return sm.GetStore(queue, priority, ID(number))
 }
@@ -142,6 +127,7 @@ func (q *Queue) initSizes() {
 	for priority := range []Priority{PRIORITY_URGENT, PRIORITY_HIGH, PRIORITY_NORM} {
 		p := Priority(priority)
 		q.metrics.SetSize(p, int64(q.writes[p].GetWriteID()-q.reads[p].GetReadID()))
+		log.Info().Msgf("[init-size] <%s> size: %d", p, q.writes[p].GetWriteID()-q.reads[p].GetReadID())
 	}
 }
 
@@ -184,15 +170,15 @@ func (q *Queue) unAckedChecker() {
 func (q *Queue) String() string {
 	return strings.Join([]string{
 		fmt.Sprintf("Queue: %s", q.Name),
-		fmt.Sprintf("  Buffer  : norm: %d, high: %d, urgent: %d, acked: %d", len(q.normChan), len(q.highChan), len(q.urgentChan), len(q.ackedChan)),
-		fmt.Sprintf("  UnAcked : %d", len(q.unacked[PRIORITY_URGENT])+len(q.unacked[PRIORITY_HIGH])+len(q.unacked[PRIORITY_NORM])),
-		fmt.Sprintf("  Metrics : %s", q.metrics.String()),
-		"  Stores  :",
-		"  ------------------------  reads  ------------------------",
+		fmt.Sprintf("Buffer  : norm: %d, high: %d, urgent: %d, acked: %d", len(q.normChan), len(q.highChan), len(q.urgentChan), len(q.ackedChan)),
+		fmt.Sprintf("UnAcked : %d", len(q.unacked[PRIORITY_URGENT])+len(q.unacked[PRIORITY_HIGH])+len(q.unacked[PRIORITY_NORM])),
+		fmt.Sprintf("Metrics : %s", q.metrics.String()),
+		"Stores  :",
+		"------------------------  reads  ------------------------",
 		q.reads[PRIORITY_NORM].String(),
 		q.reads[PRIORITY_HIGH].String(),
 		q.reads[PRIORITY_URGENT].String(),
-		"  ------------------------  writes ------------------------",
+		"------------------------  writes ------------------------",
 		q.writes[PRIORITY_NORM].String(),
 		q.writes[PRIORITY_HIGH].String(),
 		q.writes[PRIORITY_URGENT].String(),
@@ -208,9 +194,20 @@ func (q *Queue) Rates() map[Priority]*InOutRates {
 }
 
 func (q *Queue) Put(message MessageData, priority Priority) error {
-	err := q.writes[priority].Put(message)
+	store := q.writes[priority]
+	err := store.Put(message)
 	if err == nil {
 		q.metrics.MarkIn(priority)
+	}
+	if store.IsWriteEOF() {
+		q.writeLocks[priority].Lock()
+		if store.IsWriteEOF() {
+			nextStore := q.sm.GetStore(q.Name, priority, store.GetWriteID())
+			q.sm.UnrefStore(store.Key())
+			q.writes[priority] = nextStore
+			log.Info().Msgf("[%s] <%s> write shift %d", q.Name, priority, nextStore.GetWriteID())
+		}
+		q.writeLocks[priority].Unlock()
 	}
 	return err
 }

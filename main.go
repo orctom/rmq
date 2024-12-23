@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
@@ -24,8 +25,9 @@ func main() {
 	// startUI()
 	// testMmap()
 	// time.Sleep(time.Second * 10)
-	testID()
+	testProduceConsume()
 	// dummy()
+	// testOnce()
 }
 
 func intToBytearray(num uint64) []byte {
@@ -41,10 +43,7 @@ func bytearrayToInt(bytearray []byte) uint64 {
 func testMmap() {
 	path := utils.ExpandHome("~/temp/dummy.txt")
 	// os.Remove(path)
-	mm, err := utils.NewMmap(path)
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
+	mm := utils.NewMmap(path)
 	// if err = mm.Append([]byte("hello")); err != nil {
 	// 	log.Fatal().Err(err).Send()
 	// }
@@ -54,7 +53,7 @@ func testMmap() {
 	// if err := mm.Write([]byte(" hi   "), 0); err != nil {
 	// 	log.Fatal().Err(err).Send()
 	// }
-	err = mm.WriteAt([]byte("hello world"), 150, true)
+	err := mm.WriteAt([]byte("hello world"), 150, true)
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
@@ -79,13 +78,13 @@ func testMmap() {
 	fmt.Printf("[%s]\n", raw)
 }
 
-func testID() {
+func testProduceConsume() {
 	q := queue.NewQueue("dummy")
 	println(rand.Intn(100))
 
 	go func() {
-		// time.Sleep(2 * time.Second)
-		// log.Debug().Msg(q.String())
+		time.Sleep(2 * time.Second)
+		log.Debug().Msg(q.String())
 		log.Debug().Msg("consumer started")
 		for {
 			msg := q.BGet()
@@ -97,7 +96,7 @@ func testID() {
 			took := time.Since(t).String()
 			log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
 			q.Ack(msg.Priority, msg.ID)
-			// time.Sleep(200 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
@@ -170,4 +169,28 @@ func dummy() {
 	log.Info().Msgf("metrics sizes: %v", metrics.Sizes())
 	log.Info().Msgf("metrics rates: %v", metrics.Rates())
 	time.Sleep(time.Second * 20)
+}
+
+func testOnce() {
+	log.Info().Msg("start test once")
+	var mu sync.Mutex
+	var val = 0
+	var fn = func() {
+		if val >= 25 {
+			mu.Lock()
+			if val >= 25 {
+				fmt.Printf("\t%d -> 0\n", val)
+				val = 0
+			}
+			mu.Unlock()
+		}
+		// mu.Lock()
+		val++
+		// mu.Unlock()
+	}
+	for i := 0; i < 100; i++ {
+		go fn()
+	}
+	time.Sleep(time.Second * 2)
+	log.Info().Msgf("end test once, val: %d", val)
 }

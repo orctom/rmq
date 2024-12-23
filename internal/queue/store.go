@@ -45,23 +45,19 @@ func NewStoreManager() *StoreManager {
 	}
 }
 
-func (sm *StoreManager) GetStore(queue string, priority Priority, startID ID) (*Store, error) {
+func (sm *StoreManager) GetStore(queue string, priority Priority, startID ID) *Store {
 	key := Key(queue, priority, startID)
 	if store, exists := sm.stores[key]; exists {
 		store.Ref()
-		return store, nil
+		return store
 	}
-	store, err := NewStore(queue, priority, startID)
-	if err != nil {
-		return nil, err
-	}
+	store := NewStore(queue, priority, startID)
 	sm.stores[key] = store
 	store.Ref()
-	return store, nil
+	return store
 }
 
-func (sm *StoreManager) UnrefStore(queue string, priority Priority, startID ID) {
-	key := Key(queue, priority, startID)
+func (sm *StoreManager) UnrefStore(key string) {
 	if store, exists := sm.stores[key]; exists {
 		if store.Unref() {
 			delete(sm.stores, key)
@@ -69,7 +65,7 @@ func (sm *StoreManager) UnrefStore(queue string, priority Priority, startID ID) 
 	}
 }
 
-func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
+func NewStore(queue string, priority Priority, startID ID) *Store {
 	metaPath := StorePath(queue, priority, startID, ".meta")
 	dataPath := StorePath(queue, priority, startID, ".data")
 	metaPath = utils.ExpandHome(metaPath)
@@ -83,25 +79,15 @@ func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
 
 	var id ID = startID
 	var readOffset int64 = 0
-	meta, err := utils.NewMmap(metaPath)
-	if err != nil {
-		return nil, err
-	} else {
-		id = findCurrentID(meta)
-		readOffset = findReadOffset(meta)
-	}
+	meta := utils.NewMmap(metaPath)
+	id = findCurrentID(meta)
+	readOffset = findReadOffset(meta)
 
 	var writeOffset int64 = 0
-	data, err := utils.NewMmap(dataPath)
-	if err != nil {
-		return nil, err
-	} else {
-		writeOffset = data.Size()
-	}
+	data := utils.NewMmap(dataPath)
+	writeOffset = data.Size()
 
-	key := Key(queue, priority, startID)
-	log.Debug().Str("key", key).Int64("r", readOffset).Int64("w", writeOffset).Msg("[store]")
-	return &Store{
+	store := &Store{
 		Queue:       queue,
 		Priority:    priority,
 		StartID:     startID,
@@ -111,7 +97,9 @@ func NewStore(queue string, priority Priority, startID ID) (*Store, error) {
 		writeOffset: writeOffset,
 		id:          id,
 		cond:        sync.NewCond(&sync.Mutex{}),
-	}, nil
+	}
+	log.Debug().Str("key", store.Key()).Uint64("r", uint64(store.GetReadID())).Uint64("w", uint64(store.GetWriteID())).Msg("[store]")
+	return store
 }
 
 func findCurrentID(mmap *utils.Mmap) ID {
@@ -134,7 +122,7 @@ func (s *Store) String() string {
 	dataSize := utils.BytesToHuman(uint64(s.data.Size()))
 	readID := s.GetReadID()
 	writeID := s.GetWriteID()
-	items = append(items, fmt.Sprintf("  [%s] meta: %s, data: %s, read: %d, write: %d", s.Key(), metaSize, dataSize, readID, writeID))
+	items = append(items, fmt.Sprintf("[%s] meta: %s, data: %s, read: %d, write: %d", s.Key(), metaSize, dataSize, readID, writeID))
 
 	var status Status = STATUS_UNKONWN
 	var last, lastAdded *MessageMeta = nil, nil
@@ -146,7 +134,7 @@ func (s *Store) String() string {
 		s.meta.ReadAt(buffer, offset)
 		meta, _ := DecodeMessageMeta(buffer)
 		if meta.Status != status {
-			items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", meta.ID, meta.Offset, meta.Length, meta.Status))
+			items = append(items, fmt.Sprintf("  [%d] offset: %d, len: %d, status: %s", meta.ID, meta.Offset, meta.Length, meta.Status))
 			lastAdded = meta
 		}
 		status = meta.Status
@@ -154,9 +142,9 @@ func (s *Store) String() string {
 		counter.Count(meta.Status)
 	}
 	if last != lastAdded {
-		items = append(items, fmt.Sprintf("    [%d] offset: %d, len: %d, status: %s", last.ID, last.Offset, last.Length, last.Status))
+		items = append(items, fmt.Sprintf("  [%d] offset: %d, len: %d, status: %s", last.ID, last.Offset, last.Length, last.Status))
 	}
-	items = append(items, fmt.Sprintf("    [counts] %s", counter.String()))
+	items = append(items, fmt.Sprintf("  [counts] %s", counter.String()))
 	return strings.Join(items, "\n")
 }
 
@@ -167,7 +155,7 @@ func (s *Store) IsEmpty() bool {
 }
 
 func (s *Store) IsReadEOF() bool {
-	return s.readOffset+MESSAGE_META_SIZE >= s.meta.Size()
+	return s.IsWriteEOF() && s.readOffset+MESSAGE_META_SIZE >= s.meta.Size()
 }
 
 func (s *Store) IsWriteEOF() bool {

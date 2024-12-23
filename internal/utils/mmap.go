@@ -3,7 +3,6 @@ package utils
 // https://stackoverflow.com/questions/69247065/updating-mmap-file-with-struct-in-go
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -27,15 +26,12 @@ type Mmap struct {
 	data *[SIZE_1G]byte
 }
 
-func NewMmap(path string) (*Mmap, error) {
-	file, size, err := open(path)
-	if err != nil {
-		return nil, err
-	}
+func NewMmap(path string) *Mmap {
+	file, size := open(path)
 	fd := int(file.Fd())
 	ref, err := syscall.Mmap(fd, 0, SIZE_1G, syscall.PROT_WRITE|syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, errors.Wrap(err, "[mmap] failed to create mmap")
+		log.Panic().Err(err).Msgf("[store-crashed] failed to create mmap: %s", path)
 	}
 	mm := &Mmap{
 		file: file,
@@ -44,34 +40,32 @@ func NewMmap(path string) (*Mmap, error) {
 		data: (*[SIZE_1G]byte)(unsafe.Pointer(&ref[0])),
 	}
 	runtime.SetFinalizer(mm, (*Mmap).Close)
-	return mm, nil
+	return mm
 }
 
-func open(path string) (*os.File, int64, error) {
+func open(path string) (*os.File, int64) {
 	fullpath := ExpandHome(path)
 	f, err := os.OpenFile(fullpath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		return nil, 0, fmt.Errorf("[mmap] could not open: %s; %w", path, err)
+		log.Panic().Err(err).Msgf("[store-crashed] failed to open: %s", path)
 	}
 
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, 0, fmt.Errorf("[mmap] could not stat: %s; %w", path, err)
+		log.Panic().Err(err).Msgf("[store-crashed] failed to get stat: %s", path)
 	}
 
 	size := fi.Size()
 	if size < 0 {
-		return nil, size, fmt.Errorf("[mmap] negative size: %s", path)
+		log.Panic().Msgf("[store-crashed] invalid (negative size): %s", path)
 	}
 	if size >= SIZE_1G {
-		return nil, size, fmt.Errorf(
-			"[mmap] too large, max supported: %s, actual: %s, path: %s",
+		log.Panic().Msgf("[store-crashed] too large, max supported: %s, actual: %s, path: %s",
 			BytesToHuman(SIZE_1G),
 			BytesToHuman(uint64(size)),
-			path,
-		)
+			path)
 	}
-	return f, size, nil
+	return f, size
 }
 
 func (mm *Mmap) Size() int64 {
