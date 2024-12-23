@@ -25,7 +25,7 @@ func NewMetricsCounter() *MetricsCounter {
 }
 
 func (c *MetricsCounter) String() string {
-	return fmt.Sprintf("total: %d, ins: %d, outs: %d", c.total, c.ins, c.outs)
+	return fmt.Sprintf("size: %d", c.total)
 }
 
 func (c *MetricsCounter) Set(val int64) {
@@ -138,7 +138,7 @@ func (m *Metrics) intervalChecker() {
 					in:  in,
 					out: out,
 				}
-				log.Trace().Msgf("<%s> %s, in: %.1f/s, out: %.1f/s", priority, counter, in, out)
+				log.Debug().Msgf("<%s> %s, in: %.1f/s, out: %.1f/s", priority, counter, in, out)
 			}
 			m.rates = &rates
 		}

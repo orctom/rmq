@@ -22,8 +22,9 @@ const (
 
 	MESSAGE_META_SIZE = 25
 
-	SIZE_500M = 1 << 29
-	SIZE_1G   = 1 << 30
+	SIZE_500M      = 1 << 29
+	SIZE_1G        = 1 << 30
+	STORE_MAX_SIZE = 1024 * 1024 * 50
 )
 
 type Priority uint8

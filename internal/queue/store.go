@@ -85,11 +85,13 @@ func NewStore(queue string, priority Priority, startID ID) *Store {
 		utils.TouchFile(dataPath)
 	}
 
-	var id ID = startID
 	var readOffset int64 = 0
+	var id ID = startID
 	meta := utils.NewMmap(metaPath)
-	id = findCurrentID(meta)
 	readOffset = findReadOffset(meta)
+	if meta.Size() > 0 {
+		id = findCurrentID(meta)
+	}
 
 	var writeOffset int64 = 0
 	data := utils.NewMmap(dataPath)
@@ -106,14 +108,11 @@ func NewStore(queue string, priority Priority, startID ID) *Store {
 		id:          id,
 		cond:        sync.NewCond(&sync.Mutex{}),
 	}
-	log.Debug().Str("key", store.Key()).Uint64("r", uint64(store.GetReadID())).Uint64("w", uint64(store.GetWriteID())).Msg("[store]")
+	log.Debug().Str("key", store.Key()).Int64("r", int64(store.GetReadID())).Int64("w", int64(store.GetWriteID())).Msg("[store]")
 	return store
 }
 
 func findCurrentID(mmap *utils.Mmap) ID {
-	if mmap.Size() <= 0 {
-		return ID(0)
-	}
 	offset := mmap.Size() - MESSAGE_META_SIZE
 	idBytes := make([]byte, 8)
 	mmap.ReadAt(idBytes, offset)
@@ -167,7 +166,7 @@ func (s *Store) IsReadEOF() bool {
 }
 
 func (s *Store) IsWriteEOF() bool {
-	return s.data.Size() >= SIZE_500M
+	return s.data.Size() >= STORE_MAX_SIZE
 }
 
 func findReadOffset(mmap *utils.Mmap) int64 {
@@ -235,7 +234,7 @@ func (s *Store) Put(message MessageData) error {
 
 	length := message.Size()
 	meta := NewMessageMeta(s.GetAndIncrease(), s.writeOffset, length)
-	log.Debug().Msgf("[put] <%s> id: %d", s.Priority, meta.ID)
+	log.Trace().Msgf("[put] <%s> id: %d", s.Priority, meta.ID)
 	metaEncoded, err := meta.Encode()
 	if err != nil {
 		return err
@@ -286,6 +285,6 @@ func (s *Store) Get() (*Message, error) {
 
 func (s *Store) UpdateStatus(id ID, status Status) error {
 	data := []byte{uint8(status)}
-	offset := int64(id)*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
+	offset := (int64(id)-int64(s.StartID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
 	return s.meta.WriteAt(data, offset, false)
 }

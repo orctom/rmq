@@ -2,28 +2,29 @@ package queue
 
 import "sync"
 
-type RMQ struct {
+type rmq struct {
 	queues map[string]*Queue
 	sync.Mutex
 }
 
-func NewRMQ() *RMQ {
-	return &RMQ{
-		queues: make(map[string]*Queue),
-	}
-}
-
-func (rmq *RMQ) Put(name string, data MessageData, priority Priority) {
-	q, exists := rmq.queues[name]
-	rmq.Lock()
-	if !exists {
-		q, exists = rmq.queues[name]
-		if !exists {
-			q = NewQueue(name)
-			rmq.queues[name] = q
+func RMQ() *rmq {
+	var once sync.Once
+	var instance *rmq
+	once.Do(func() {
+		instance = &rmq{
+			queues: make(map[string]*Queue),
 		}
-	}
-	rmq.Unlock()
-	q.Put(data, priority)
+	})
+	return instance
 }
 
+func (r *rmq) GetQueue(name string) *Queue {
+	r.Lock()
+	defer r.Unlock()
+	queue, exists := r.queues[name]
+	if !exists {
+		queue = NewQueue(name)
+		r.queues[name] = queue
+	}
+	return queue
+}

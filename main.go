@@ -79,32 +79,38 @@ func testMmap() {
 }
 
 func testProduceConsume() {
-	q := queue.NewQueue("dummy")
+	rmq := queue.RMQ()
+	q := rmq.GetQueue("dummy")
+	// q := queue.NewQueue("dummy")
 	println(rand.Intn(100))
 
+	counter := queue.NewMetricsCounter()
 	go func() {
-		time.Sleep(2 * time.Second)
-		log.Debug().Msg(q.String())
+		// time.Sleep(30 * time.Second)
+		// log.Debug().Msg(q.String())
 		log.Debug().Msg("consumer started")
 		for {
 			msg := q.BGet()
 			if msg == nil {
 				time.Sleep(1000 * time.Millisecond)
+				log.Debug().Msg("\t\t\t===")
 				continue
 			}
-			t := decodeTime2(msg.Data)
-			took := time.Since(t).String()
-			log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
+			// t := decodeTime2(msg.Data)
+			// took := time.Since(t).String()
+			// log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
 			q.Ack(msg.Priority, msg.ID)
-			time.Sleep(200 * time.Millisecond)
+			counter.MarkIns()
+			// time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
 	go func() {
+		// time.Sleep(2 * time.Second)
 		log.Debug().Msg("producer started")
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 5_000_000; i++ {
 			priority := queue.Priority(rand.Intn(3))
-			// priority = queue.PRIORITY_NORMAL
+			priority = queue.PRIORITY_NORM
 			now := time.Now()
 			data := encodeTime2(now)
 			q.Put(queue.MessageData(data), priority)
@@ -115,8 +121,9 @@ func testProduceConsume() {
 	}()
 
 	log.Info().Msg("wait before exit")
-	time.Sleep(time.Second * 20)
+	time.Sleep(time.Second * 30)
 	log.Debug().Msg(q.String())
+	log.Info().Msg(counter.String())
 	log.Info().Msg("exit")
 }
 

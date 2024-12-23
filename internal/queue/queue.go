@@ -17,7 +17,6 @@ type Queue struct {
 	Name       string
 	sm         *StoreManager
 	reads      map[Priority]*Store
-	readLocks  map[Priority]*sync.Mutex
 	writes     map[Priority]*Store
 	writeLocks map[Priority]*sync.Mutex
 	normChan   chan *Message
@@ -42,11 +41,6 @@ func NewQueue(name string) *Queue {
 			PRIORITY_NORM:   FindReadStore(sm, name, PRIORITY_NORM),
 			PRIORITY_HIGH:   FindReadStore(sm, name, PRIORITY_HIGH),
 			PRIORITY_URGENT: FindReadStore(sm, name, PRIORITY_URGENT),
-		},
-		readLocks: map[Priority]*sync.Mutex{
-			PRIORITY_NORM:   new(sync.Mutex),
-			PRIORITY_HIGH:   new(sync.Mutex),
-			PRIORITY_URGENT: new(sync.Mutex),
 		},
 		writes: map[Priority]*Store{
 			PRIORITY_NORM:   FindWriteStore(sm, name, PRIORITY_NORM),
@@ -84,6 +78,7 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 		log.Panic().Err(err).Msgf("[find-read-store] wrong glob pattern")
 	}
 	if len(files) == 0 {
+		log.Debug().Msg("no files")
 		return sm.GetStore(queue, priority, 0)
 	}
 
@@ -98,6 +93,9 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 		if store.IsWriteEOF() && store.IsReadEOF() {
 			continue
 		}
+		log.Debug().Msg(metaPath)
+		log.Debug().Msgf(" is write eof: %v", store.IsWriteEOF())
+		log.Debug().Msgf(" is read  eof: %v", store.IsReadEOF())
 		startID = store.StartID
 		break
 	}
@@ -105,7 +103,7 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 }
 
 func FindWriteStore(sm *StoreManager, queue string, priority Priority) *Store {
-	dir := os.DirFS(fmt.Sprintf("queue/%s/", queue))
+	dir := os.DirFS(QueuePath(queue))
 	files, err := fs.Glob(dir, fmt.Sprintf("%d-*.meta", priority))
 	if err != nil {
 		log.Panic().Err(err).Msgf("[find-write-store] wrong glob pattern")
@@ -126,8 +124,11 @@ func FindWriteStore(sm *StoreManager, queue string, priority Priority) *Store {
 func (q *Queue) initSizes() {
 	for priority := range []Priority{PRIORITY_URGENT, PRIORITY_HIGH, PRIORITY_NORM} {
 		p := Priority(priority)
-		q.metrics.SetSize(p, int64(q.writes[p].GetWriteID()-q.reads[p].GetReadID()))
-		log.Info().Msgf("[init-size] <%s> size: %d", p, q.writes[p].GetWriteID()-q.reads[p].GetReadID())
+		size := int64(q.writes[p].GetWriteID() - q.reads[p].GetReadID())
+		q.metrics.SetSize(p, size)
+		log.Info().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
+		log.Info().Msgf(" read : %s, read  id: %d (write id: %d)", q.reads[p].Key(), q.reads[p].GetReadID(), q.reads[p].GetWriteID())
+		log.Info().Msgf(" write: %s, write id: %d (read  id: %d)", q.writes[p].Key(), q.writes[p].GetWriteID(), q.writes[p].GetReadID())
 	}
 }
 
@@ -135,19 +136,23 @@ func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	for {
 		msg, err := q.reads[priority].Get()
 		if err != nil {
+			log.Warn().Msgf("\t err get from store: %s, read offset: %d", q.reads[priority].Key(), q.reads[priority].GetReadID())
 			if IsEOFError(err) {
 				if q.sm.IsStoreExists(q.Name, priority, q.reads[priority].GetReadID()) {
 					nextStore := q.sm.GetStore(q.Name, priority, q.writes[priority].GetReadID())
+					oldId := q.reads[priority].GetReadID()
+					newId := nextStore.GetReadID()
 					q.sm.UnrefStore(q.reads[priority].Key())
 					q.reads[priority] = nextStore
-					log.Info().Msgf("[%s] <%s> read shift %d", q.Name, priority, nextStore.GetReadID())
+					log.Info().Msgf("[%s] <%s> read shift %d -> %d", q.Name, priority, oldId, newId)
 					continue
 				}
 			}
 			log.Error().Err(err).Send()
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		log.Debug().Msgf("[buffer] <%s> id: %d", priority, msg.ID)
+		log.Trace().Msgf("[buffer] <%s> id: %d", priority, msg.ID)
 		buffer <- msg
 		q.queueCond.L.Lock()
 		q.queueCond.Signal()
@@ -159,6 +164,7 @@ func (q *Queue) ackedTracker() {
 	for {
 		msg := <-q.ackedChan
 		q.reads[msg.Priority].UpdateStatus(msg.ID, STATUS_ACKED)
+		delete(q.unacked[msg.Priority], msg.ID)
 		q.metrics.MarkOut(msg.Priority)
 	}
 }
@@ -211,9 +217,11 @@ func (q *Queue) Put(message MessageData, priority Priority) error {
 		q.writeLocks[priority].Lock()
 		if q.writes[priority].IsWriteEOF() {
 			nextStore := q.sm.GetStore(q.Name, priority, q.writes[priority].GetWriteID())
+			oldId := q.writes[priority].GetWriteID()
+			newId := nextStore.GetWriteID()
 			q.sm.UnrefStore(q.writes[priority].Key())
 			q.writes[priority] = nextStore
-			log.Info().Msgf("[%s] <%s> write shift %d", q.Name, priority, nextStore.GetWriteID())
+			log.Info().Msgf("[%s] <%s> write shift %d -> %d", q.Name, priority, oldId, newId)
 		}
 		q.writeLocks[priority].Unlock()
 	}
@@ -264,6 +272,5 @@ func (q *Queue) BGet() *Message {
 }
 
 func (q *Queue) Ack(priority Priority, id ID) {
-	delete(q.unacked[priority], id)
 	q.ackedChan <- &Acked{ID: id, Priority: priority}
 }
