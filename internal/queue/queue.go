@@ -95,7 +95,7 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 			log.Panic().Err(err).Msgf("[find-read-store] failed to parse id from meta file: %s", metaPath)
 		}
 		store := sm.GetStore(queue, priority, ID(number))
-		if store.IsReadEOF() {
+		if store.IsWriteEOF() && store.IsReadEOF() {
 			continue
 		}
 		startID = store.StartID
@@ -133,8 +133,17 @@ func (q *Queue) initSizes() {
 
 func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	for {
-		msg, err := q.Pull(priority)
+		msg, err := q.reads[priority].Get()
 		if err != nil {
+			if IsEOFError(err) {
+				if q.sm.IsStoreExists(q.Name, priority, q.reads[priority].GetReadID()) {
+					nextStore := q.sm.GetStore(q.Name, priority, q.writes[priority].GetReadID())
+					q.sm.UnrefStore(q.reads[priority].Key())
+					q.reads[priority] = nextStore
+					log.Info().Msgf("[%s] <%s> read shift %d", q.Name, priority, nextStore.GetReadID())
+					continue
+				}
+			}
 			log.Error().Err(err).Send()
 			continue
 		}
@@ -194,16 +203,15 @@ func (q *Queue) Rates() map[Priority]*InOutRates {
 }
 
 func (q *Queue) Put(message MessageData, priority Priority) error {
-	store := q.writes[priority]
-	err := store.Put(message)
+	err := q.writes[priority].Put(message)
 	if err == nil {
 		q.metrics.MarkIn(priority)
 	}
-	if store.IsWriteEOF() {
+	if q.writes[priority].IsWriteEOF() {
 		q.writeLocks[priority].Lock()
-		if store.IsWriteEOF() {
-			nextStore := q.sm.GetStore(q.Name, priority, store.GetWriteID())
-			q.sm.UnrefStore(store.Key())
+		if q.writes[priority].IsWriteEOF() {
+			nextStore := q.sm.GetStore(q.Name, priority, q.writes[priority].GetWriteID())
+			q.sm.UnrefStore(q.writes[priority].Key())
 			q.writes[priority] = nextStore
 			log.Info().Msgf("[%s] <%s> write shift %d", q.Name, priority, nextStore.GetWriteID())
 		}
@@ -253,10 +261,6 @@ func (q *Queue) BGet() *Message {
 			}
 		}
 	}
-}
-
-func (q *Queue) Pull(priority Priority) (*Message, error) {
-	return q.writes[priority].Get()
 }
 
 func (q *Queue) Ack(priority Priority, id ID) {

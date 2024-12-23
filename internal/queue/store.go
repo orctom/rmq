@@ -57,6 +57,14 @@ func (sm *StoreManager) GetStore(queue string, priority Priority, startID ID) *S
 	return store
 }
 
+func (sm *StoreManager) IsStoreExists(queue string, priority Priority, id ID) bool {
+	metaPath := StorePath(queue, priority, id, ".meta")
+	dataPath := StorePath(queue, priority, id, ".data")
+	metaPath = utils.ExpandHome(metaPath)
+	dataPath = utils.ExpandHome(dataPath)
+	return !utils.IsNotExists(metaPath) && !utils.IsNotExists(dataPath)
+}
+
 func (sm *StoreManager) UnrefStore(key string) {
 	if store, exists := sm.stores[key]; exists {
 		if store.Unref() {
@@ -155,7 +163,7 @@ func (s *Store) IsEmpty() bool {
 }
 
 func (s *Store) IsReadEOF() bool {
-	return s.IsWriteEOF() && s.readOffset+MESSAGE_META_SIZE >= s.meta.Size()
+	return s.readOffset >= s.meta.Size()
 }
 
 func (s *Store) IsWriteEOF() bool {
@@ -241,7 +249,13 @@ func (s *Store) Put(message MessageData) error {
 func (s *Store) Get() (*Message, error) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
-	for s.readOffset >= s.meta.Size() {
+	for s.IsReadEOF() {
+		s.Lock()
+		if s.IsWriteEOF() && s.IsReadEOF() {
+			s.Unlock()
+			return nil, NewEOFError(s.Key())
+		}
+		s.Unlock()
 		s.cond.Wait()
 	}
 	metaBuffer := make([]byte, MESSAGE_META_SIZE)
