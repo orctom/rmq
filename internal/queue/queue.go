@@ -57,7 +57,7 @@ func NewQueue(name string) *Queue {
 		urgentChan: urgentChan,
 		ackedChan:  ackedChan,
 		unacked:    make(map[Priority]map[ID]*Unacked),
-		metrics:    NewMetrics(time.Second * 5),
+		metrics:    NewMetrics(name, time.Second*5),
 		queueCond:  sync.NewCond(new(sync.Mutex)),
 	}
 	queue.initSizes()
@@ -136,7 +136,6 @@ func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 	for {
 		msg, err := q.reads[priority].Get()
 		if err != nil {
-			log.Warn().Msgf("\t err get from store: %s, read offset: %d", q.reads[priority].Key(), q.reads[priority].GetReadID())
 			if IsEOFError(err) {
 				if q.sm.IsStoreExists(q.Name, priority, q.reads[priority].GetReadID()) {
 					nextStore := q.sm.GetStore(q.Name, priority, q.writes[priority].GetReadID())

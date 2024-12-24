@@ -1,19 +1,15 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"os"
 	"sync"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/rs/zerolog/log"
 
 	"orctom.com/rmq/internal/queue"
 	"orctom.com/rmq/internal/ui"
-	"orctom.com/rmq/internal/utils"
 )
 
 func startUI() {
@@ -23,87 +19,38 @@ func startUI() {
 
 func main() {
 	// startUI()
-	// testMmap()
 	// time.Sleep(time.Second * 10)
-	testProduceConsume()
+	testQueue()
 	// dummy()
 	// testOnce()
 }
 
-func intToBytearray(num uint64) []byte {
-	bytearray := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bytearray, uint64(num))
-	return bytearray
-}
-
-func bytearrayToInt(bytearray []byte) uint64 {
-	return binary.LittleEndian.Uint64(bytearray)
-}
-
-func testMmap() {
-	path := utils.ExpandHome("~/temp/dummy.txt")
-	// os.Remove(path)
-	mm := utils.NewMmap(path)
-	// if err = mm.Append([]byte("hello")); err != nil {
-	// 	log.Fatal().Err(err).Send()
-	// }
-	// if err = mm.Append([]byte(" world")); err != nil {
-	// 	log.Fatal().Err(err).Send()
-	// }
-	// if err := mm.Write([]byte(" hi   "), 0); err != nil {
-	// 	log.Fatal().Err(err).Send()
-	// }
-	err := mm.WriteAt([]byte("hello world"), 150, true)
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
-	println("size:", mm.Size())
-	// err = mm.Write([]byte("wanderful"), 0)
-	// if err != nil {
-	// 	log.Fatal().Err(err).Send()
-	// }
-	// println("size:", mm.Size())
-
-	data := make([]byte, 200)
-	err = mm.ReadAt(data, 0)
-	if err != nil {
-		log.Fatal().Err(err).Send()
-	}
-	println("data:", string(data), "!")
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatal().Msgf("could not read back data: %+v", err)
-	}
-	fmt.Printf("[%s]\n", raw)
-}
-
-func testProduceConsume() {
+func testQueue() {
 	rmq := queue.RMQ()
 	q := rmq.GetQueue("dummy")
 	// q := queue.NewQueue("dummy")
 	println(rand.Intn(100))
 
 	counter := queue.NewMetricsCounter()
-	go func() {
-		// time.Sleep(30 * time.Second)
-		// log.Debug().Msg(q.String())
-		log.Debug().Msg("consumer started")
-		for {
-			msg := q.BGet()
-			if msg == nil {
-				time.Sleep(1000 * time.Millisecond)
-				log.Debug().Msg("\t\t\t===")
-				continue
-			}
-			// t := decodeTime2(msg.Data)
-			// took := time.Since(t).String()
-			// log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
-			q.Ack(msg.Priority, msg.ID)
-			counter.MarkIns()
-			// time.Sleep(200 * time.Millisecond)
-		}
-	}()
+	// go func() {
+	// 	time.Sleep(10 * time.Second)
+	// 	log.Debug().Msg(q.String())
+	// 	log.Debug().Msg("consumer started")
+	// 	for {
+	// 		msg := q.BGet()
+	// 		if msg == nil {
+	// 			time.Sleep(1000 * time.Millisecond)
+	// 			log.Debug().Msg("\t\t\t===")
+	// 			continue
+	// 		}
+	// 		// t := decodeTime2(msg.Data)
+	// 		// took := time.Since(t).String()
+	// 		// log.Debug().Msgf("\t consumer \t\t %d, took %s", msg.ID, took)
+	// 		q.Ack(msg.Priority, msg.ID)
+	// 		counter.MarkIns()
+	// 		// time.Sleep(200 * time.Millisecond)
+	// 	}
+	// }()
 
 	go func() {
 		// time.Sleep(2 * time.Second)
@@ -127,47 +74,11 @@ func testProduceConsume() {
 	log.Info().Msg("exit")
 }
 
-func encodeTime1(t time.Time) []byte {
-	b, err := cbor.Marshal(t)
-	if err != nil {
-		log.Error().Err(err).Send()
-		return nil
-	}
-	return b
-}
-
-func decodeTime1(b []byte) time.Time {
-	var t time.Time
-	err := cbor.Unmarshal(b, &t)
-	if err != nil {
-		log.Error().Err(err).Send()
-	}
-	return t
-}
-
-func encodeTime2(t time.Time) []byte {
-	b, err := t.MarshalBinary()
-	if err != nil {
-		log.Error().Err(err).Send()
-		return nil
-	}
-	return b
-}
-
-func decodeTime2(b []byte) time.Time {
-	var t time.Time
-	err := t.UnmarshalBinary(b)
-	if err != nil {
-		log.Error().Err(err).Send()
-	}
-	return t
-}
-
 func dummy() {
 	counter := queue.NewMetricsCounter()
 	counter.MarkIns()
 	log.Debug().Msgf("value %d", counter.Get())
-	metrics := queue.NewMetrics(time.Second * 2)
+	metrics := queue.NewMetrics("dummy", time.Second*2)
 	for i := 0; i < 20; i++ {
 		time.Sleep(time.Millisecond * time.Duration(rand.Intn(1000)))
 		metrics.MarkIn(queue.PRIORITY_HIGH)

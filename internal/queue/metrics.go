@@ -104,13 +104,15 @@ func (r *InOutRates) String() string {
 }
 
 type Metrics struct {
+	name     string
 	counters map[Priority]*MetricsCounter
 	interval time.Duration
 	rates    *map[Priority]*InOutRates
 }
 
-func NewMetrics(interval time.Duration) *Metrics {
+func NewMetrics(name string, interval time.Duration) *Metrics {
 	meter := &Metrics{
+		name:     name,
 		counters: make(map[Priority]*MetricsCounter),
 		interval: interval,
 	}
@@ -138,7 +140,7 @@ func (m *Metrics) intervalChecker() {
 					in:  in,
 					out: out,
 				}
-				log.Debug().Msgf("<%s> %s, in: %.1f/s, out: %.1f/s", priority, counter, in, out)
+				log.Debug().Msgf("[%s] <%s> %s, in: %.1f/s, out: %.1f/s", m.name, priority, counter, in, out)
 			}
 			m.rates = &rates
 		}
