@@ -7,19 +7,19 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/pkgerrors"
-	"orctom.com/rmq/conf"
+	"orctom.com/rmq/configs"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 func init() {
-	zerolog.TimeFieldFormat = conf.DATETIME_FMT_ZONE
+	zerolog.TimeFieldFormat = configs.DATETIME_FMT_ZONE
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	var writer io.Writer
-	if conf.Config.Debug {
+	if configs.Config.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: conf.DATETIME_FMT_ZONE}
+		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: configs.DATETIME_FMT_ZONE}
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 		cwd, _ := os.Getwd()

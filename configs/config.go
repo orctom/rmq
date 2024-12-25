@@ -1,4 +1,4 @@
-package conf
+package configs
 
 import (
 	"fmt"
@@ -51,7 +51,7 @@ func init() {
 			viper.AddConfigPath(path)
 		}
 	}
-	viper.AddConfigPath("./conf")
+	viper.AddConfigPath("./configs")
 
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("SCEPTER")

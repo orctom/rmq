@@ -1,4 +1,4 @@
-package pq
+package utils
 
 import (
 	"container/heap"
