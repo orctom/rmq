@@ -2,13 +2,15 @@ package queue
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"orctom.com/rmq/internal/utils"
 )
 
 var (
-	BASE_PATH = utils.ExpandHome("~/.rmq/")
-	ORDER     = binary.BigEndian
+	BASE_PATH   = utils.ExpandHome("~/.rmq/")
+	QUEUES_PATH = fmt.Sprintf("%s/queue/", BASE_PATH)
+	ORDER       = binary.BigEndian
 )
 
 const (

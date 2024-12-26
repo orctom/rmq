@@ -21,8 +21,12 @@ func PrintMem() {
 	fmt.Printf("\tNumGC:          %v\n", memStats.NumGC)
 }
 
-func GetMem() string {
+func GetMem() uint64 {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	return BytesToHuman(memStats.Sys)
+	return memStats.Sys
+}
+
+func GetMemString() string {
+	return BytesToHuman(GetMem())
 }

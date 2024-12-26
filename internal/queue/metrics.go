@@ -94,33 +94,42 @@ func (c *MetricsCounter) GetOutsAndReset() int64 {
 	return val
 }
 
-type InOutRates struct {
-	in  float64
-	out float64
+type Stats struct {
+	Name   string
+	Urgent int64
+	High   int64
+	Norm   int64
+	In     float64
+	Out    float64
 }
 
-func (r *InOutRates) String() string {
-	return fmt.Sprintf("in: %.1f/s, out: %.1f/s", r.in, r.out)
+func (s *Stats) String() string {
+	return fmt.Sprintf("[%s] urgent: %d, high: %d, norm: %d, in: %.1f/s, out: %.1f/s", s.Name, s.Urgent, s.High, s.Norm, s.In, s.Out)
 }
 
 type Metrics struct {
 	name     string
 	counters map[Priority]*MetricsCounter
 	interval time.Duration
-	rates    *map[Priority]*InOutRates
+	stats    *Stats
 }
 
 func NewMetrics(name string, interval time.Duration) *Metrics {
-	meter := &Metrics{
-		name:     name,
-		counters: make(map[Priority]*MetricsCounter),
-		interval: interval,
+	log.Info().Msgf("create metrics: %s, %v", name, interval)
+	counters := map[Priority]*MetricsCounter{
+		PRIORITY_URGENT: NewMetricsCounter(),
+		PRIORITY_HIGH:   NewMetricsCounter(),
+		PRIORITY_NORM:   NewMetricsCounter(),
 	}
-	meter.counters[PRIORITY_URGENT] = NewMetricsCounter()
-	meter.counters[PRIORITY_HIGH] = NewMetricsCounter()
-	meter.counters[PRIORITY_NORM] = NewMetricsCounter()
-	go meter.intervalChecker()
-	return meter
+	m := &Metrics{
+		name:     name,
+		counters: counters,
+		interval: interval,
+		stats:    &Stats{Name: name},
+	}
+	go m.intervalChecker()
+
+	return m
 }
 
 func (m *Metrics) intervalChecker() {
@@ -130,19 +139,24 @@ func (m *Metrics) intervalChecker() {
 	for {
 		select {
 		case <-ticker.C:
-			rates := make(map[Priority]*InOutRates)
+			var ins, outs int64 = 0, 0
 			for priority, counter := range m.counters {
-				ins := counter.GetInsAndReset()
-				in := float64(ins) / m.interval.Seconds()
-				outs := counter.GetOutsAndReset()
-				out := float64(outs) / m.interval.Seconds()
-				rates[priority] = &InOutRates{
-					in:  in,
-					out: out,
+				switch priority {
+				case PRIORITY_URGENT:
+					m.stats.Urgent = counter.total
+				case PRIORITY_HIGH:
+					m.stats.High = counter.total
+				case PRIORITY_NORM:
+					m.stats.Norm = counter.total
 				}
-				log.Debug().Msgf("[%s] <%s> %s, in: %.1f/s, out: %.1f/s", m.name, priority, counter, in, out)
+
+				ins += counter.GetInsAndReset()
+				outs += counter.GetOutsAndReset()
 			}
-			m.rates = &rates
+			duration := m.interval.Seconds()
+			m.stats.In = float64(ins) / duration
+			m.stats.Out = float64(outs) / duration
+			log.Debug().Msg(m.stats.String())
 		}
 	}
 }
@@ -159,20 +173,13 @@ func (m *Metrics) MarkOut(priority Priority) {
 	m.counters[priority].MarkOuts()
 }
 
-func (m *Metrics) Rates() map[Priority]*InOutRates {
-	return *m.rates
-}
-
-func (m *Metrics) Sizes() map[Priority]int64 {
-	sizes := make(map[Priority]int64)
-	for priority, counter := range m.counters {
-		sizes[priority] = counter.Get()
-	}
-	return sizes
-}
-
 func (m *Metrics) Size(priority Priority) int64 {
 	return m.counters[priority].Get()
+}
+
+func (m *Metrics) Stats() *Stats {
+	log.Debug().Msg(m.stats.String())
+	return m.stats
 }
 
 func (m *Metrics) String() string {

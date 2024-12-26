@@ -6,10 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func TouchFile(name string) error {
-	os.MkdirAll(filepath.Dir(name), 0744)
+	err := os.MkdirAll(filepath.Dir(name), 0744)
+	if err != nil {
+		return err
+	}
 	file, err := os.OpenFile(name, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -65,4 +70,11 @@ func CreateSymlink(source string, target string) error {
 func IsNotExists(path string) bool {
 	stat, err := os.Stat(path)
 	return stat == nil || (err != nil && os.IsNotExist(err))
+}
+
+func DeleteFile(path string) {
+	err := os.Remove(path)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to delete file: %s", path)
+	}
 }

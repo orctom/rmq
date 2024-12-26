@@ -1,6 +1,12 @@
 package queue
 
-import "sync"
+import (
+	"os"
+	"sync"
+
+	"github.com/rs/zerolog/log"
+	"orctom.com/rmq/internal/utils"
+)
 
 type rmq struct {
 	queues map[string]*Queue
@@ -14,8 +20,33 @@ func RMQ() *rmq {
 		instance = &rmq{
 			queues: make(map[string]*Queue),
 		}
+		instance.init()
 	})
 	return instance
+}
+
+func init() {
+	RMQ()
+}
+
+func (r *rmq) init() {
+	if utils.IsNotExists(QUEUES_PATH) {
+		err := os.MkdirAll(QUEUES_PATH, 0744)
+		if err != nil {
+			log.Panic().Err(err).Msgf("[init] failed to create %s", QUEUES_PATH)
+		}
+	}
+
+	dirEntries, err := os.ReadDir(QUEUES_PATH)
+	if err != nil {
+		log.Panic().Err(err).Msgf("[init] failed to list files in %s", QUEUES_PATH)
+	}
+	for _, entry := range dirEntries {
+		if entry.IsDir() {
+			name := entry.Name()
+			r.queues[name] = NewQueue(name)
+		}
+	}
 }
 
 func (r *rmq) GetQueue(name string) *Queue {
@@ -27,4 +58,12 @@ func (r *rmq) GetQueue(name string) *Queue {
 		r.queues[name] = queue
 	}
 	return queue
+}
+
+func (r *rmq) Stats() map[string]*Stats {
+	var stats = make(map[string]*Stats)
+	for name, queue := range r.queues {
+		stats[name] = queue.Stats()
+	}
+	return stats
 }

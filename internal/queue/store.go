@@ -4,28 +4,51 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"orctom.com/rmq/internal/utils"
 )
 
-func Key(queue string, priority Priority, id ID) string {
-	return fmt.Sprintf("%s/%d-%s", queue, priority, id)
+type Key struct {
+	Queue    string
+	Priority Priority
+	ID       ID
+}
+
+func NewKey(queue string, priority Priority, id ID) *Key {
+	return &Key{
+		Queue:    queue,
+		Priority: priority,
+		ID:       id,
+	}
+}
+
+func (k *Key) Equals(other *Key) bool {
+	return k.Queue == other.Queue && k.Priority == other.Priority && k.ID == other.ID
+}
+
+func (k *Key) String() string {
+	return fmt.Sprintf("%s/%d-%s", k.Queue, k.Priority, k.ID)
 }
 
 func QueuePath(queue string) string {
 	return fmt.Sprintf("%s/queue/%s/", BASE_PATH, queue)
 }
 
-func StorePath(queue string, priority Priority, id ID, ext string) string {
-	return fmt.Sprintf("%s/queue/%s/%d-%s%s", BASE_PATH, queue, priority, id, ext)
+func StorePath(key *Key, ext string) string {
+	return fmt.Sprintf("%s/queue/%s/%d-%s%s", BASE_PATH, key.Queue, key.Priority, key.ID, ext)
+}
+
+func StorePathFromKey(key string, ext string) string {
+	return fmt.Sprintf("%s/queue/%s%s", BASE_PATH, key, ext)
 }
 
 type Store struct {
-	Queue       string
-	Priority    Priority
-	StartID     ID
+	Key         *Key
+	metaPath    string
 	meta        *utils.Mmap
+	dataPath    string
 	data        *utils.Mmap
 	readOffset  int64
 	writeOffset int64
@@ -36,48 +59,72 @@ type Store struct {
 }
 
 type StoreManager struct {
-	stores map[string]*Store
+	stores     map[*Key]*Store
+	readStores map[*Key]interface{}
 }
 
 func NewStoreManager() *StoreManager {
 	return &StoreManager{
-		stores: make(map[string]*Store),
+		stores:     make(map[*Key]*Store),
+		readStores: make(map[*Key]interface{}),
 	}
 }
 
-func (sm *StoreManager) GetStore(queue string, priority Priority, startID ID) *Store {
-	key := Key(queue, priority, startID)
+func (sm *StoreManager) readStoresChecker() {
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if len(sm.readStores) == 0 {
+				continue
+			}
+			for key, _ := range sm.readStores {
+				store := sm.GetStore(key)
+
+				if store.IsAllAcked() {
+					// store.
+				}
+			}
+		}
+	}
+}
+
+func (sm *StoreManager) GetStore(key *Key) *Store {
 	if store, exists := sm.stores[key]; exists {
 		store.Ref()
 		return store
 	}
-	store := NewStore(queue, priority, startID)
+	store := NewStore(key)
 	sm.stores[key] = store
 	store.Ref()
 	return store
 }
 
-func (sm *StoreManager) IsStoreExists(queue string, priority Priority, id ID) bool {
-	metaPath := StorePath(queue, priority, id, ".meta")
-	dataPath := StorePath(queue, priority, id, ".data")
-	metaPath = utils.ExpandHome(metaPath)
-	dataPath = utils.ExpandHome(dataPath)
+func (sm *StoreManager) IsStoreExists(key *Key) bool {
+	metaPath := StorePath(key, ".meta")
+	dataPath := StorePath(key, ".data")
 	return !utils.IsNotExists(metaPath) && !utils.IsNotExists(dataPath)
 }
 
-func (sm *StoreManager) UnrefStore(key string) {
+func (sm *StoreManager) UnrefStore(key *Key, deleteOnNoRef bool) {
 	if store, exists := sm.stores[key]; exists {
 		if store.Unref() {
 			delete(sm.stores, key)
+			if deleteOnNoRef {
+				metaPath := StorePath(key, ".meta")
+				dataPath := StorePath(key, ".data")
+				utils.DeleteFile(metaPath)
+				utils.DeleteFile(dataPath)
+			}
 		}
 	}
 }
 
-func NewStore(queue string, priority Priority, startID ID) *Store {
-	metaPath := StorePath(queue, priority, startID, ".meta")
-	dataPath := StorePath(queue, priority, startID, ".data")
-	metaPath = utils.ExpandHome(metaPath)
-	dataPath = utils.ExpandHome(dataPath)
+func NewStore(key *Key) *Store {
+	metaPath := StorePath(key, ".meta")
+	dataPath := StorePath(key, ".data")
 	if utils.IsNotExists(metaPath) {
 		utils.TouchFile(metaPath)
 	}
@@ -86,7 +133,7 @@ func NewStore(queue string, priority Priority, startID ID) *Store {
 	}
 
 	var readOffset int64 = 0
-	var id ID = startID
+	var id ID = key.ID
 	meta := utils.NewMmap(metaPath)
 	readOffset = findReadOffset(meta)
 	if meta.Size() > 0 {
@@ -98,17 +145,17 @@ func NewStore(queue string, priority Priority, startID ID) *Store {
 	writeOffset = data.Size()
 
 	store := &Store{
-		Queue:       queue,
-		Priority:    priority,
-		StartID:     startID,
+		Key:         key,
+		metaPath:    metaPath,
 		meta:        meta,
+		dataPath:    dataPath,
 		data:        data,
 		readOffset:  readOffset,
 		writeOffset: writeOffset,
 		id:          id,
 		cond:        sync.NewCond(&sync.Mutex{}),
 	}
-	log.Debug().Str("key", store.Key()).Int64("r", int64(store.GetReadID())).Int64("w", int64(store.GetWriteID())).Msg("[store]")
+	log.Debug().Str("key", key.String()).Int64("r", int64(store.GetReadID())).Int64("w", int64(store.GetWriteID())).Msg("[store]")
 	return store
 }
 
@@ -119,17 +166,13 @@ func findCurrentID(mmap *utils.Mmap) ID {
 	return ID(ORDER.Uint64(idBytes) + 1)
 }
 
-func (s *Store) Key() string {
-	return Key(s.Queue, s.Priority, s.StartID)
-}
-
 func (s *Store) String() string {
 	var items = make([]string, 0)
 	metaSize := utils.BytesToHuman(uint64(s.meta.Size()))
 	dataSize := utils.BytesToHuman(uint64(s.data.Size()))
 	readID := s.GetReadID()
 	writeID := s.GetWriteID()
-	items = append(items, fmt.Sprintf("[%s] meta: %s, data: %s, read: %d, write: %d", s.Key(), metaSize, dataSize, readID, writeID))
+	items = append(items, fmt.Sprintf("[%s] meta: %s, data: %s, read: %d, write: %d", s.Key, metaSize, dataSize, readID, writeID))
 
 	var status Status = STATUS_UNKONWN
 	var last, lastAdded *MessageMeta = nil, nil
@@ -187,6 +230,11 @@ func (s *Store) Close() {
 	s.data.Close()
 }
 
+func (s *Store) IsAllAcked() bool {
+	readOffset := findReadOffset(s.meta)
+	return readOffset >= s.meta.Size()
+}
+
 func (s *Store) Ref() {
 	s.Lock()
 	defer s.Unlock()
@@ -215,7 +263,7 @@ func (s *Store) GetAndIncrease() ID {
 func (s *Store) GetReadID() ID {
 	s.Lock()
 	defer s.Unlock()
-	return s.StartID + ID(s.readOffset/MESSAGE_META_SIZE)
+	return s.Key.ID + ID(s.readOffset/MESSAGE_META_SIZE)
 }
 
 func (s *Store) GetWriteID() ID {
@@ -234,7 +282,7 @@ func (s *Store) Put(message MessageData) error {
 
 	length := message.Size()
 	meta := NewMessageMeta(s.GetAndIncrease(), s.writeOffset, length)
-	log.Trace().Msgf("[put] <%s> id: %d", s.Priority, meta.ID)
+	log.Trace().Msgf("[put] <%s> id: %d", s.Key.Priority, meta.ID)
 	metaEncoded, err := meta.Encode()
 	if err != nil {
 		return err
@@ -252,7 +300,7 @@ func (s *Store) Get() (*Message, error) {
 		s.Lock()
 		if s.IsWriteEOF() && s.IsReadEOF() {
 			s.Unlock()
-			return nil, NewEOFError(s.Key())
+			return nil, NewEOFError(s.Key.String())
 		}
 		s.Unlock()
 		s.cond.Wait()
@@ -272,7 +320,7 @@ func (s *Store) Get() (*Message, error) {
 	s.data.ReadAt(dataBuffer, meta.Offset)
 	msg := &Message{
 		ID:       meta.ID,
-		Priority: s.Priority,
+		Priority: s.Key.Priority,
 		Data:     dataBuffer,
 	}
 	err = s.UpdateStatus(meta.ID, STATUS_PULLED)
@@ -285,6 +333,6 @@ func (s *Store) Get() (*Message, error) {
 
 func (s *Store) UpdateStatus(id ID, status Status) error {
 	data := []byte{uint8(status)}
-	offset := (int64(id)-int64(s.StartID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
+	offset := (int64(id)-int64(s.Key.ID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
 	return s.meta.WriteAt(data, offset, false)
 }
