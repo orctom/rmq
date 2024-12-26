@@ -57,7 +57,7 @@ func NewQueue(name string) *Queue {
 		urgentChan: urgentChan,
 		ackedChan:  ackedChan,
 		unacked:    make(map[Priority]map[ID]*Unacked),
-		metrics:    NewMetrics(name, time.Second*5),
+		metrics:    NewMetrics(name, time.Second*15),
 		queueCond:  sync.NewCond(new(sync.Mutex)),
 	}
 	queue.initSizes()
@@ -197,8 +197,7 @@ func (q *Queue) String() string {
 }
 
 func (q *Queue) Stats() *Stats {
-	log.Debug().Msgf("Queue stats: %s", q.metrics.Stats())
-	return q.metrics.Stats()
+	return q.metrics.GetStats()
 }
 
 func (q *Queue) Put(message MessageData, priority Priority) error {

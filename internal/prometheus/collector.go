@@ -49,8 +49,8 @@ func (c *RmqCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(c.sizes, prometheus.GaugeValue, float64(stats.Norm), name, "norm")
 		ch <- prometheus.MustNewConstMetric(c.rates, prometheus.GaugeValue, stats.In, name, "in")
 		ch <- prometheus.MustNewConstMetric(c.rates, prometheus.GaugeValue, stats.Out, name, "out")
-		log.Debug().Msg(stats.String())
+		log.Trace().Msg(stats.String())
 	}
 	ch <- prometheus.MustNewConstMetric(c.mem, prometheus.GaugeValue, float64(utils.GetMem()))
-	log.Debug().Msgf("[mem] %s", utils.GetMemString())
+	log.Trace().Msgf("[mem] %s", utils.GetMemString())
 }

@@ -1,7 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"time"
+
+	"github.com/rs/zerolog/log"
 	"orctom.com/rmq/internal/prometheus"
+	"orctom.com/rmq/internal/queue"
 )
 
 func StartExporter() {
@@ -19,7 +24,16 @@ func afterFunc() {
 	// log.Debug().Msg("ended")
 }
 
-func main() {
-	StartExporter()
+func dummy() {
+	queue.RMQ()
+	time.Sleep(time.Second * 5)
+	queue.RMQ()
+	fmt.Println("done")
+}
 
+func main() {
+	log.Info().Msg("starting")
+	StartExporter()
+	// dummy()
+	log.Info().Msg("exiting")
 }

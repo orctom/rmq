@@ -177,8 +177,7 @@ func (m *Metrics) Size(priority Priority) int64 {
 	return m.counters[priority].Get()
 }
 
-func (m *Metrics) Stats() *Stats {
-	log.Debug().Msg(m.stats.String())
+func (m *Metrics) GetStats() *Stats {
 	return m.stats
 }
 

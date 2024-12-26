@@ -8,25 +8,24 @@ import (
 	"orctom.com/rmq/internal/utils"
 )
 
+var instance *rmq
+
 type rmq struct {
 	queues map[string]*Queue
 	sync.Mutex
 }
 
 func RMQ() *rmq {
-	var once sync.Once
-	var instance *rmq
-	once.Do(func() {
-		instance = &rmq{
-			queues: make(map[string]*Queue),
-		}
-		instance.init()
-	})
 	return instance
 }
 
 func init() {
-	RMQ()
+	log.Info().Msg("[rmq] init")
+	instance = &rmq{
+		queues: make(map[string]*Queue),
+	}
+	instance.init()
+	log.Info().Msg("[rmq] initialized")
 }
 
 func (r *rmq) init() {
