@@ -115,7 +115,6 @@ type Metrics struct {
 }
 
 func NewMetrics(name string, interval time.Duration) *Metrics {
-	log.Info().Msgf("create metrics: %s, %v", name, interval)
 	counters := map[Priority]*MetricsCounter{
 		PRIORITY_URGENT: NewMetricsCounter(),
 		PRIORITY_HIGH:   NewMetricsCounter(),

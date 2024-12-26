@@ -29,6 +29,7 @@ type Queue struct {
 }
 
 func NewQueue(name string) *Queue {
+	log.Info().Msgf("[queue] %s init", name)
 	sm := NewStoreManager()
 	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
 	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
@@ -68,6 +69,7 @@ func NewQueue(name string) *Queue {
 	go queue.ackedTracker()
 	go queue.unAckedChecker()
 
+	log.Info().Msgf("[queue] %s initialized", name)
 	return queue
 }
 
@@ -124,9 +126,9 @@ func (q *Queue) initSizes() {
 		p := Priority(priority)
 		size := int64(q.writes[p].GetWriteID() - q.reads[p].GetReadID())
 		q.metrics.SetSize(p, size)
-		log.Info().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
-		log.Info().Msgf(" read : %s, read  id: %d (write id: %d)", q.reads[p].Key, q.reads[p].GetReadID(), q.reads[p].GetWriteID())
-		log.Info().Msgf(" write: %s, write id: %d (read  id: %d)", q.writes[p].Key, q.writes[p].GetWriteID(), q.writes[p].GetReadID())
+		log.Debug().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
+		log.Debug().Msgf(" read : %s, read  id: %d (write id: %d)", q.reads[p].Key, q.reads[p].GetReadID(), q.reads[p].GetWriteID())
+		log.Debug().Msgf(" write: %s, write id: %d (read  id: %d)", q.writes[p].Key, q.writes[p].GetWriteID(), q.writes[p].GetReadID())
 	}
 }
 

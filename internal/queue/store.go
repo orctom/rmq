@@ -59,14 +59,15 @@ type Store struct {
 }
 
 type StoreManager struct {
-	stores     map[*Key]*Store
-	readStores map[*Key]interface{}
+	stores     map[Key]*Store
+	readStores map[Key]interface{}
+	sync.Mutex
 }
 
 func NewStoreManager() *StoreManager {
 	return &StoreManager{
-		stores:     make(map[*Key]*Store),
-		readStores: make(map[*Key]interface{}),
+		stores:     make(map[Key]*Store),
+		readStores: make(map[Key]interface{}),
 	}
 }
 
@@ -81,7 +82,7 @@ func (sm *StoreManager) readStoresChecker() {
 				continue
 			}
 			for key, _ := range sm.readStores {
-				store := sm.GetStore(key)
+				store := sm.GetStore(&key)
 
 				if store.IsAllAcked() {
 					// store.
@@ -92,13 +93,20 @@ func (sm *StoreManager) readStoresChecker() {
 }
 
 func (sm *StoreManager) GetStore(key *Key) *Store {
-	if store, exists := sm.stores[key]; exists {
+	if store, exists := sm.stores[*key]; exists {
 		store.Ref()
 		return store
 	}
+	sm.Lock()
+	if store, exists := sm.stores[*key]; exists {
+		store.Ref()
+		sm.Unlock()
+		return store
+	}
 	store := NewStore(key)
-	sm.stores[key] = store
+	sm.stores[*key] = store
 	store.Ref()
+	sm.Unlock()
 	return store
 }
 
@@ -109,9 +117,9 @@ func (sm *StoreManager) IsStoreExists(key *Key) bool {
 }
 
 func (sm *StoreManager) UnrefStore(key *Key, deleteOnNoRef bool) {
-	if store, exists := sm.stores[key]; exists {
+	if store, exists := sm.stores[*key]; exists {
 		if store.Unref() {
-			delete(sm.stores, key)
+			delete(sm.stores, *key)
 			if deleteOnNoRef {
 				metaPath := StorePath(key, ".meta")
 				dataPath := StorePath(key, ".data")
@@ -155,7 +163,10 @@ func NewStore(key *Key) *Store {
 		id:          id,
 		cond:        sync.NewCond(&sync.Mutex{}),
 	}
-	log.Debug().Str("key", key.String()).Int64("r", int64(store.GetReadID())).Int64("w", int64(store.GetWriteID())).Msg("[store]")
+	readId := int64(store.GetReadID())
+	writeId := int64(store.GetWriteID())
+	size := writeId - readId
+	log.Debug().Str("key", key.String()).Int64("r", readId).Int64("w", writeId).Int64("z", size).Msg("[store]")
 	return store
 }
 
