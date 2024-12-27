@@ -85,21 +85,21 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 	}
 
 	sort.Strings(files)
-	var startID ID = 0
+	var nextID ID = 0
 	for _, metaPath := range files {
 		number, err := strconv.ParseUint(metaPath[2:22], 10, 64)
 		if err != nil {
 			log.Panic().Err(err).Msgf("[find-read-store] failed to parse id from meta file: %s", metaPath)
 		}
 		store := sm.GetStore(NewKey(queue, priority, ID(number)))
+		nextID = store.GetWriteID()
 		if store.IsWriteEOF() && store.IsReadEOF() {
 			sm.UnrefStore(store.Key)
 			continue
 		}
-		startID = store.Key.ID
-		break
+		return store
 	}
-	return sm.GetStore(NewKey(queue, priority, startID))
+	return sm.GetStore(NewKey(queue, priority, nextID))
 }
 
 func FindWriteStore(sm *StoreManager, queue string, priority Priority) *Store {
