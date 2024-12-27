@@ -59,34 +59,53 @@ type Store struct {
 }
 
 type StoreManager struct {
-	stores     map[Key]*Store
-	readStores map[Key]interface{}
+	stores map[Key]*Store
+	norefs map[Key]interface{}
 	sync.Mutex
 }
 
 func NewStoreManager() *StoreManager {
-	return &StoreManager{
-		stores:     make(map[Key]*Store),
-		readStores: make(map[Key]interface{}),
+	sm := &StoreManager{
+		stores: make(map[Key]*Store),
+		norefs: make(map[Key]interface{}),
 	}
+	go sm.norefsCleaner()
+	return sm
 }
 
-func (sm *StoreManager) readStoresChecker() {
+func (sm *StoreManager) norefsCleaner() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if len(sm.readStores) == 0 {
+			if len(sm.norefs) == 0 {
 				continue
 			}
-			for key, _ := range sm.readStores {
-				store := sm.GetStore(&key)
-
-				if store.IsAllAcked() {
-					// store.
+			var deleting = make([]Key, len(sm.norefs))
+			for key := range sm.norefs {
+				if _, exists := sm.stores[key]; exists {
+					continue
 				}
+
+				if !sm.IsStoreExists(&key) {
+					deleting = append(deleting, key)
+					continue
+				}
+
+				store := NewStore(&key)
+				if store.IsWriteEOF() && store.IsReadEOF() && store.IsAllAcked() {
+					deleting = append(deleting, key)
+					store.CloseAndDelete()
+					continue
+				}
+			}
+			if len(deleting) < 0 {
+				continue
+			}
+			for _, key := range deleting {
+				delete(sm.norefs, key)
 			}
 		}
 	}
@@ -119,13 +138,7 @@ func (sm *StoreManager) IsStoreExists(key *Key) bool {
 func (sm *StoreManager) UnrefStore(key *Key, deleteOnNoRef bool) {
 	if store, exists := sm.stores[*key]; exists {
 		if store.Unref() {
-			delete(sm.stores, *key)
-			if deleteOnNoRef {
-				metaPath := StorePath(key, ".meta")
-				dataPath := StorePath(key, ".data")
-				utils.DeleteFile(metaPath)
-				utils.DeleteFile(dataPath)
-			}
+			sm.norefs[*key] = nil
 		}
 	}
 }
@@ -166,7 +179,7 @@ func NewStore(key *Key) *Store {
 	readId := int64(store.GetReadID())
 	writeId := int64(store.GetWriteID())
 	size := writeId - readId
-	log.Debug().Str("key", key.String()).Int64("r", readId).Int64("w", writeId).Int64("z", size).Msg("[store]")
+	log.Info().Str("key", key.String()).Int64("r", readId).Int64("w", writeId).Int64("z", size).Msg("[store]")
 	return store
 }
 
@@ -239,6 +252,15 @@ func findReadOffset(mmap *utils.Mmap) int64 {
 func (s *Store) Close() {
 	s.meta.Close()
 	s.data.Close()
+}
+
+func (s *Store) CloseAndDelete() {
+	s.Close()
+	if s.IsWriteEOF() && s.IsAllAcked() {
+		utils.DeleteFile(s.metaPath)
+		utils.DeleteFile(s.dataPath)
+	}
+	log.Info().Str("key", s.Key.String()).Msg("[store] closed and deleted")
 }
 
 func (s *Store) IsAllAcked() bool {

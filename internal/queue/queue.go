@@ -126,9 +126,9 @@ func (q *Queue) initSizes() {
 		p := Priority(priority)
 		size := int64(q.writes[p].GetWriteID() - q.reads[p].GetReadID())
 		q.metrics.SetSize(p, size)
-		log.Debug().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
-		log.Debug().Msgf(" read : %s, read  id: %d (write id: %d)", q.reads[p].Key, q.reads[p].GetReadID(), q.reads[p].GetWriteID())
-		log.Debug().Msgf(" write: %s, write id: %d (read  id: %d)", q.writes[p].Key, q.writes[p].GetWriteID(), q.writes[p].GetReadID())
+		log.Info().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
+		log.Info().Msgf(" [r]: %s, rid: %d (wid: %d)", q.reads[p].Key, q.reads[p].GetReadID(), q.reads[p].GetWriteID())
+		log.Info().Msgf(" [w]: %s, wid: %d (rid: %d)", q.writes[p].Key, q.writes[p].GetWriteID(), q.writes[p].GetReadID())
 	}
 }
 
