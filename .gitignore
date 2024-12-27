@@ -19,3 +19,5 @@ data/*
 
 /internal/queue/msg/
 /rmq
+/rmq-server
+/rmq-cli

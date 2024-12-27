@@ -14,6 +14,11 @@ fbs:
 fmt:
 	go list -f '{{.Dir}}' $(MODULE)/pkg/... $(MODULE)/gen/...| xargs gofmt -s -l -w
 
+# build the project
+build:
+	go build ./cmd/rmq-server
+	go build ./cmd/rmq-cli
+
 #: create git tag with the version number
 release:
 	git tag `pi version -s`
