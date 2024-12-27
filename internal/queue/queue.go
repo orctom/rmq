@@ -93,9 +93,9 @@ func FindReadStore(sm *StoreManager, queue string, priority Priority) *Store {
 		}
 		store := sm.GetStore(NewKey(queue, priority, ID(number)))
 		if store.IsWriteEOF() && store.IsReadEOF() {
+			sm.UnrefStore(store.Key)
 			continue
 		}
-		log.Trace().Msgf("\t%s write EOF: %v, read EOF: %v", metaPath, store.IsWriteEOF(), store.IsReadEOF())
 		startID = store.Key.ID
 		break
 	}
@@ -127,8 +127,10 @@ func (q *Queue) initSizes() {
 		size := int64(q.writes[p].GetWriteID() - q.reads[p].GetReadID())
 		q.metrics.SetSize(p, size)
 		log.Info().Msgf("[init-size] [%s] <%s> size: %d", q.Name, p, size)
-		log.Info().Msgf(" [r]: %s, rid: %d (wid: %d)", q.reads[p].Key, q.reads[p].GetReadID(), q.reads[p].GetWriteID())
-		log.Info().Msgf(" [w]: %s, wid: %d (rid: %d)", q.writes[p].Key, q.writes[p].GetWriteID(), q.writes[p].GetReadID())
+		rs := q.reads[p]
+		ws := q.writes[p]
+		log.Info().Msgf(" [r]: %s, r: %d, w: %d, ref: %d", rs.Key, rs.GetReadID(), rs.GetWriteID(), rs.references)
+		log.Info().Msgf(" [w]: %s, r: %d, w: %d, ref: %d", ws.Key, ws.GetReadID(), ws.GetWriteID(), ws.references)
 	}
 }
 
@@ -140,7 +142,7 @@ func (q *Queue) bufferLoader(priority Priority, buffer chan *Message) {
 				oldKey := q.reads[priority].Key
 				newKey := NewKey(q.Name, priority, q.reads[priority].GetReadID())
 				if q.sm.IsStoreExists(newKey) {
-					q.sm.UnrefStore(oldKey, true)
+					q.sm.UnrefStore(oldKey)
 					q.reads[priority] = q.sm.GetStore(newKey)
 					log.Info().Msgf("[%s] <%s> read shift %d -> %d", q.Name, priority, oldKey.ID, newKey.ID)
 					continue
@@ -212,7 +214,7 @@ func (q *Queue) Put(message MessageData, priority Priority) error {
 		if q.writes[priority].IsWriteEOF() {
 			oldKey := q.writes[priority].Key
 			newKey := NewKey(q.Name, priority, q.writes[priority].GetWriteID())
-			q.sm.UnrefStore(oldKey, false)
+			q.sm.UnrefStore(oldKey)
 			q.writes[priority] = q.sm.GetStore(newKey)
 			log.Info().Msgf("[%s] <%s> write shift %d -> %d", q.Name, priority, oldKey.ID, newKey.ID)
 		}

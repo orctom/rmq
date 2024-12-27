@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -65,4 +66,10 @@ func (r *rmq) Stats() map[string]*Stats {
 		stats[name] = queue.Stats()
 	}
 	return stats
+}
+
+func (r *rmq) Debug() {
+	for _, queue := range r.queues {
+		fmt.Println(queue.String())
+	}
 }

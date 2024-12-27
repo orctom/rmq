@@ -83,7 +83,8 @@ func (sm *StoreManager) norefsCleaner() {
 			if len(sm.norefs) == 0 {
 				continue
 			}
-			var deleting = make([]Key, len(sm.norefs))
+			log.Debug().Msgf("[norefs-cleaner] %d", len(sm.norefs))
+			var deleting []Key
 			for key := range sm.norefs {
 				if _, exists := sm.stores[key]; exists {
 					continue
@@ -96,8 +97,9 @@ func (sm *StoreManager) norefsCleaner() {
 
 				store := NewStore(&key)
 				if store.IsWriteEOF() && store.IsReadEOF() && store.IsAllAcked() {
-					deleting = append(deleting, key)
-					store.CloseAndDelete()
+					if store.CloseAndDelete() {
+						deleting = append(deleting, key)
+					}
 					continue
 				}
 			}
@@ -107,6 +109,7 @@ func (sm *StoreManager) norefsCleaner() {
 			for _, key := range deleting {
 				delete(sm.norefs, key)
 			}
+			log.Debug().Msgf("[norefs-cleaner] end %d", len(sm.norefs))
 		}
 	}
 }
@@ -135,9 +138,10 @@ func (sm *StoreManager) IsStoreExists(key *Key) bool {
 	return !utils.IsNotExists(metaPath) && !utils.IsNotExists(dataPath)
 }
 
-func (sm *StoreManager) UnrefStore(key *Key, deleteOnNoRef bool) {
+func (sm *StoreManager) UnrefStore(key *Key) {
 	if store, exists := sm.stores[*key]; exists {
 		if store.Unref() {
+			delete(sm.stores, *key)
 			sm.norefs[*key] = nil
 		}
 	}
@@ -196,7 +200,7 @@ func (s *Store) String() string {
 	dataSize := utils.BytesToHuman(uint64(s.data.Size()))
 	readID := s.GetReadID()
 	writeID := s.GetWriteID()
-	items = append(items, fmt.Sprintf("[%s] meta: %s, data: %s, read: %d, write: %d", s.Key, metaSize, dataSize, readID, writeID))
+	items = append(items, fmt.Sprintf("[%s] meta: %s, data: %s, r: %d, w: %d", s.Key, metaSize, dataSize, readID, writeID))
 
 	var status Status = STATUS_UNKONWN
 	var last, lastAdded *MessageMeta = nil, nil
@@ -254,13 +258,14 @@ func (s *Store) Close() {
 	s.data.Close()
 }
 
-func (s *Store) CloseAndDelete() {
+func (s *Store) CloseAndDelete() bool {
+	delete := s.IsWriteEOF() && s.IsAllAcked()
 	s.Close()
-	if s.IsWriteEOF() && s.IsAllAcked() {
+	if delete {
 		utils.DeleteFile(s.metaPath)
 		utils.DeleteFile(s.dataPath)
 	}
-	log.Info().Str("key", s.Key.String()).Msg("[store] closed and deleted")
+	return delete
 }
 
 func (s *Store) IsAllAcked() bool {
@@ -365,6 +370,19 @@ func (s *Store) Get() (*Message, error) {
 }
 
 func (s *Store) UpdateStatus(id ID, status Status) error {
+	defer func() {
+		if r := recover(); r != nil {
+			offset := (int64(id)-int64(s.Key.ID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
+			log.Panic().Msgf(
+				"[%s] failed to update [%d] to status: %s, offset: %d, size: %d",
+				s.Key.String(),
+				id,
+				status,
+				offset,
+				s.meta.Size(),
+			)
+		}
+	}()
 	data := []byte{uint8(status)}
 	offset := (int64(id)-int64(s.Key.ID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
 	return s.meta.WriteAt(data, offset, false)

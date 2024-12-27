@@ -11,9 +11,9 @@ import (
 
 func main() {
 	go prometheus.StartExporter()
+	// queue.RMQ().Debug()
 
 	ctx := context.Background()
-	// Socket to talk to clients
 	socket := zmq.NewRep(ctx)
 	defer socket.Close()
 	log.Info().Msg("RMQ serving on port :7001")
