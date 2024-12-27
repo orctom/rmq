@@ -10,11 +10,11 @@ help:
 fbs:
 	flatc --go -o internal/queue/ internal/fbs/message.fbs
 
-# Apply go fmt to the codebase
+#: Apply go fmt to the codebase
 fmt:
 	go list -f '{{.Dir}}' $(MODULE)/pkg/... $(MODULE)/gen/...| xargs gofmt -s -l -w
 
-# build the project
+#: build the project
 build:
 	go build ./cmd/rmq-server
 	go build ./cmd/rmq-cli
