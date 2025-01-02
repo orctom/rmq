@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"sync"
@@ -105,6 +107,12 @@ type Stats struct {
 
 func (s *Stats) String() string {
 	return fmt.Sprintf("[%s] urgent: %d, high: %d, norm: %d, in: %.1f/s, out: %.1f/s", s.Name, s.Urgent, s.High, s.Norm, s.In, s.Out)
+}
+
+func (s *Stats) Bytes() []byte {
+	var buf bytes.Buffer
+	binary.Write(&buf, ORDER, s)
+	return buf.Bytes()
 }
 
 type Metrics struct {

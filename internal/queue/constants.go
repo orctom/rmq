@@ -3,6 +3,7 @@ package queue
 import (
 	"encoding/binary"
 	"fmt"
+	"strconv"
 
 	"orctom.com/rmq/internal/utils"
 )
@@ -47,6 +48,23 @@ func (p Priority) String() string {
 		return "urgent"
 	default:
 		return "unknown"
+	}
+}
+
+func (p Priority) S() string {
+	return strconv.Itoa(int(p))
+}
+
+func ParsePriority(p string) Priority {
+	switch p {
+	case "norm":
+		return PRIORITY_NORM
+	case "high":
+		return PRIORITY_HIGH
+	case "urgent":
+		return PRIORITY_URGENT
+	default:
+		return PRIORITY_NORM
 	}
 }
 

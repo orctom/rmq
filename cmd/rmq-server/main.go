@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	zmq "github.com/go-zeromq/zmq4"
 	"github.com/rs/zerolog/log"
 	"orctom.com/rmq/internal/prometheus"
+	"orctom.com/rmq/internal/queue"
 )
 
 func main() {
@@ -26,10 +26,9 @@ func main() {
 		if err != nil {
 			log.Panic().Err(err).Msg("receiveing")
 		}
-		fmt.Println("Received ", msg)
 
-		if err := socket.Send(msg); err != nil {
-			log.Panic().Err(err).Msg("sending reply")
+		if err := socket.Send(queue.HandleRequest(msg.Bytes())); err != nil {
+			log.Panic().Err(err).Msg("failed to send reply")
 		}
 	}
 }

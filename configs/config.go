@@ -46,7 +46,7 @@ func init() {
 	home, err := os.UserHomeDir()
 
 	if err == nil {
-		path := home + "/.scepter/"
+		path := home + "/.rmq/"
 		if _, err := os.Stat(path); err == nil {
 			viper.AddConfigPath(path)
 		}
@@ -54,7 +54,7 @@ func init() {
 	viper.AddConfigPath("./configs")
 
 	viper.AutomaticEnv()
-	viper.SetEnvPrefix("SCEPTER")
+	viper.SetEnvPrefix("RMQ")
 
 	if err := viper.ReadInConfig(); err != nil {
 		fmt.Fprintln(os.Stderr, err, viper.ConfigFileUsed())

@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 )
 
 type ID int64
 
 func (id ID) String() string {
 	return fmt.Sprintf("%0*d", 20, id)
+}
+
+func (id ID) S() string {
+	return strconv.Itoa(int(id))
 }
 
 type MessageMeta struct {
