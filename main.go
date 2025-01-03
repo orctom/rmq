@@ -16,14 +16,14 @@ import (
 
 func StartStatsHttp() {
 	// default register
-	// prometheus.MustRegister(statshttp.NewRmqCollector())
-	// http.Handle("/metrics", promhttp.Handler())
+	prometheus.MustRegister(statshttp.NewRmqCollector())
+	http.Handle("/metrics", promhttp.Handler())
 
 	// blanck register
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(statshttp.NewRmqCollector())
-	metricsHandler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
-	http.Handle("/metrics", metricsHandler)
+	// registry := prometheus.NewRegistry()
+	// registry.MustRegister(statshttp.NewRmqCollector())
+	// metricsHandler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	// http.Handle("/metrics", metricsHandler)
 
 	http.HandleFunc("/stats", statshttp.StatsHandler)
 

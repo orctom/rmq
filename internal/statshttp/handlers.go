@@ -59,6 +59,8 @@ func (c *RmqCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func StatsHandler(w http.ResponseWriter, _ *http.Request) {
-	stats := queue.RMQ().Stats()
-	json.NewEncoder(w).Encode(stats)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"queues": queue.RMQ().Stats(),
+		"mem":    utils.GetMemString(),
+	})
 }

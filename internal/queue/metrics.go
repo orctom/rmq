@@ -98,7 +98,7 @@ func (c *MetricsCounter) GetOutsAndReset() int64 {
 }
 
 type Stats struct {
-	Name   string  `json:"name"`
+	Name   string  `json:"-"`
 	Urgent int64   `json:"urgent"`
 	High   int64   `json:"high"`
 	Norm   int64   `json:"norm"`
