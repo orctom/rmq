@@ -9,6 +9,7 @@ import (
 
 	zmq "github.com/go-zeromq/zmq4"
 	"github.com/rs/zerolog/log"
+	"orctom.com/rmq/internal/utils"
 )
 
 const (
@@ -31,7 +32,7 @@ const ()
 
 func Int2Bytes(i int) []byte {
 	bytes := make([]byte, 4)
-	ORDER.PutUint32(bytes, uint32(i))
+	utils.ORDER.PutUint32(bytes, uint32(i))
 	return bytes
 }
 
@@ -142,7 +143,7 @@ func PutResponse(e error) []byte {
 }
 
 func handlePut(payload []byte) zmq.Msg {
-	headLen := ORDER.Uint32(payload[:4])
+	headLen := utils.ORDER.Uint32(payload[:4])
 	items := strings.Split(string(payload[4:4+headLen]), SEP)
 	queue := items[0]
 	priority := ParsePriority(items[1])

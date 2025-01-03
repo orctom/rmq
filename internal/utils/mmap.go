@@ -15,10 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const (
-	SIZE_1G = 1 << 30
-)
-
 type Mmap struct {
 	file *os.File
 	size int64

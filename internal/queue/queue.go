@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"orctom.com/rmq/internal/utils"
 )
 
 type Queue struct {
@@ -31,9 +32,9 @@ type Queue struct {
 func NewQueue(name string) *Queue {
 	log.Info().Msgf("[queue] %s init", name)
 	sm := NewStoreManager()
-	normChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
-	highChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
-	urgentChan := make(chan *Message, BUFFER_SIZE_DEFAULT)
+	normChan := make(chan *Message, utils.BUFFER_SIZE_DEFAULT)
+	highChan := make(chan *Message, utils.BUFFER_SIZE_DEFAULT)
+	urgentChan := make(chan *Message, utils.BUFFER_SIZE_DEFAULT)
 	ackedChan := make(chan *Acked, 1000)
 	queue := &Queue{
 		Name: name,
@@ -173,7 +174,7 @@ func (q *Queue) unAckedChecker() {
 	for now := range time.Tick(time.Second * 30) {
 		for _, entries := range q.unacked {
 			for id, unacked := range entries {
-				if now.Unix()-unacked.time >= TTL_1_MINUTE {
+				if now.Unix()-unacked.time >= utils.TTL_1_MINUTE {
 					delete(entries, id)
 					q.Put(unacked.msg.Data, unacked.msg.Priority)
 				}

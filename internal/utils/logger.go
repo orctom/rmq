@@ -3,23 +3,46 @@ package utils
 import (
 	"io"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/pkgerrors"
-	"orctom.com/rmq/configs"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
+func IsDebug() bool {
+	val := os.Getenv("DEBUG")
+	if val == "true" || val == "1" {
+		return true
+	}
+	vcsTime := GetVcsTime()
+	if vcsTime == "" {
+		return true
+	}
+	log.Info().Msgf("vcs time: %s", vcsTime)
+	return false
+}
+
+func GetVcsTime() string {
+	info, _ := debug.ReadBuildInfo()
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.time" {
+			return setting.Value
+		}
+	}
+	return ""
+}
+
 func init() {
-	zerolog.TimeFieldFormat = configs.DATETIME_FMT_ZONE
+	zerolog.TimeFieldFormat = DATETIME_FMT_ZONE
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	var writer io.Writer
-	if configs.Config.Debug {
+	if IsDebug() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: configs.DATETIME_FMT_ZONE}
+		writer = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: DATETIME_FMT_ZONE}
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 		cwd, _ := os.Getwd()

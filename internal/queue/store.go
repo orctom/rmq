@@ -33,15 +33,15 @@ func (k *Key) String() string {
 }
 
 func QueuePath(queue string) string {
-	return fmt.Sprintf("%s/queue/%s/", BASE_PATH, queue)
+	return fmt.Sprintf("%s/queue/%s/", utils.BASE_PATH, queue)
 }
 
 func StorePath(key *Key, ext string) string {
-	return fmt.Sprintf("%s/queue/%s/%d-%s%s", BASE_PATH, key.Queue, key.Priority, key.ID, ext)
+	return fmt.Sprintf("%s/queue/%s/%d-%s%s", utils.BASE_PATH, key.Queue, key.Priority, key.ID, ext)
 }
 
 func StorePathFromKey(key string, ext string) string {
-	return fmt.Sprintf("%s/queue/%s%s", BASE_PATH, key, ext)
+	return fmt.Sprintf("%s/queue/%s%s", utils.BASE_PATH, key, ext)
 }
 
 type Store struct {
@@ -188,10 +188,10 @@ func NewStore(key *Key) *Store {
 }
 
 func findCurrentID(mmap *utils.Mmap) ID {
-	offset := mmap.Size() - MESSAGE_META_SIZE
+	offset := mmap.Size() - utils.MESSAGE_META_SIZE
 	idBytes := make([]byte, 8)
 	mmap.ReadAt(idBytes, offset)
-	return ID(ORDER.Uint64(idBytes) + 1)
+	return ID(utils.ORDER.Uint64(idBytes) + 1)
 }
 
 func (s *Store) String() string {
@@ -207,8 +207,8 @@ func (s *Store) String() string {
 	var counter = utils.NewCounter()
 
 	var offset int64
-	for offset = 0; offset < s.meta.Size(); offset += MESSAGE_META_SIZE {
-		buffer := make([]byte, MESSAGE_META_SIZE)
+	for offset = 0; offset < s.meta.Size(); offset += utils.MESSAGE_META_SIZE {
+		buffer := make([]byte, utils.MESSAGE_META_SIZE)
 		s.meta.ReadAt(buffer, offset)
 		meta, _ := DecodeMessageMeta(buffer)
 		if meta.Status != status {
@@ -237,14 +237,14 @@ func (s *Store) IsReadEOF() bool {
 }
 
 func (s *Store) IsWriteEOF() bool {
-	return s.data.Size() >= STORE_MAX_SIZE
+	return s.data.Size() >= utils.STORE_MAX_SIZE
 }
 
 func findReadOffset(mmap *utils.Mmap) int64 {
 	var offset int64 = 0
-	for offset = 0; offset < mmap.Size(); offset += MESSAGE_META_SIZE {
+	for offset = 0; offset < mmap.Size(); offset += utils.MESSAGE_META_SIZE {
 		buffer := make([]byte, 1)
-		mmap.ReadAt(buffer, offset+MESSAGE_META_SIZE-1)
+		mmap.ReadAt(buffer, offset+utils.MESSAGE_META_SIZE-1)
 		status := Status(buffer[0])
 		if status != STATUS_ACKED {
 			break
@@ -301,7 +301,7 @@ func (s *Store) GetAndIncrease() ID {
 func (s *Store) GetReadID() ID {
 	s.Lock()
 	defer s.Unlock()
-	return s.Key.ID + ID(s.readOffset/MESSAGE_META_SIZE)
+	return s.Key.ID + ID(s.readOffset/utils.MESSAGE_META_SIZE)
 }
 
 func (s *Store) GetWriteID() ID {
@@ -343,7 +343,7 @@ func (s *Store) Get() (*Message, error) {
 		s.Unlock()
 		s.cond.Wait()
 	}
-	metaBuffer := make([]byte, MESSAGE_META_SIZE)
+	metaBuffer := make([]byte, utils.MESSAGE_META_SIZE)
 	s.meta.ReadAt(metaBuffer, s.readOffset)
 	meta, err := DecodeMessageMeta(metaBuffer)
 	if err != nil {
@@ -365,14 +365,14 @@ func (s *Store) Get() (*Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.readOffset += MESSAGE_META_SIZE
+	s.readOffset += utils.MESSAGE_META_SIZE
 	return msg, nil
 }
 
 func (s *Store) UpdateStatus(id ID, status Status) error {
 	defer func() {
 		if r := recover(); r != nil {
-			offset := (int64(id)-int64(s.Key.ID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
+			offset := (int64(id)-int64(s.Key.ID))*utils.MESSAGE_META_SIZE + utils.MESSAGE_META_SIZE - 1
 			log.Panic().Msgf(
 				"[%s] failed to update [%d] to status: %s, offset: %d, size: %d",
 				s.Key.String(),
@@ -384,6 +384,6 @@ func (s *Store) UpdateStatus(id ID, status Status) error {
 		}
 	}()
 	data := []byte{uint8(status)}
-	offset := (int64(id)-int64(s.Key.ID))*MESSAGE_META_SIZE + MESSAGE_META_SIZE - 1
+	offset := (int64(id)-int64(s.Key.ID))*utils.MESSAGE_META_SIZE + utils.MESSAGE_META_SIZE - 1
 	return s.meta.WriteAt(data, offset, false)
 }

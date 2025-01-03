@@ -1,6 +1,9 @@
-package prometheus
+package statshttp
 
 import (
+	"encoding/json"
+	"net/http"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"orctom.com/rmq/internal/queue"
@@ -53,4 +56,9 @@ func (c *RmqCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	ch <- prometheus.MustNewConstMetric(c.mem, prometheus.GaugeValue, float64(utils.GetMem()))
 	log.Trace().Msgf("[mem] %s", utils.GetMemString())
+}
+
+func StatsHandler(w http.ResponseWriter, _ *http.Request) {
+	stats := queue.RMQ().Stats()
+	json.NewEncoder(w).Encode(stats)
 }

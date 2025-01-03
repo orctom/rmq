@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"orctom.com/rmq/internal/utils"
 )
 
 type MetricsCounter struct {
@@ -97,12 +98,12 @@ func (c *MetricsCounter) GetOutsAndReset() int64 {
 }
 
 type Stats struct {
-	Name   string
-	Urgent int64
-	High   int64
-	Norm   int64
-	In     float64
-	Out    float64
+	Name   string  `json:"name"`
+	Urgent int64   `json:"urgent"`
+	High   int64   `json:"high"`
+	Norm   int64   `json:"norm"`
+	In     float64 `json:"in"`
+	Out    float64 `json:"out"`
 }
 
 func (s *Stats) String() string {
@@ -111,7 +112,7 @@ func (s *Stats) String() string {
 
 func (s *Stats) Bytes() []byte {
 	var buf bytes.Buffer
-	binary.Write(&buf, ORDER, s)
+	binary.Write(&buf, utils.ORDER, s)
 	return buf.Bytes()
 }
 

@@ -30,16 +30,16 @@ func init() {
 }
 
 func (r *rmq) init() {
-	if utils.IsNotExists(QUEUES_PATH) {
-		err := os.MkdirAll(QUEUES_PATH, 0744)
+	if utils.IsNotExists(utils.QUEUES_PATH) {
+		err := os.MkdirAll(utils.QUEUES_PATH, 0744)
 		if err != nil {
-			log.Panic().Err(err).Msgf("[init] failed to create %s", QUEUES_PATH)
+			log.Panic().Err(err).Msgf("[init] failed to create %s", utils.QUEUES_PATH)
 		}
 	}
 
-	dirEntries, err := os.ReadDir(QUEUES_PATH)
+	dirEntries, err := os.ReadDir(utils.QUEUES_PATH)
 	if err != nil {
-		log.Panic().Err(err).Msgf("[init] failed to list files in %s", QUEUES_PATH)
+		log.Panic().Err(err).Msgf("[init] failed to list files in %s", utils.QUEUES_PATH)
 	}
 	for _, entry := range dirEntries {
 		if entry.IsDir() {
